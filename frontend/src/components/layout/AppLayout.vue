@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import AppSidebar from './AppSidebar.vue'
 import AppHeader from './AppHeader.vue'
 import AIAssistant from '@/components/shared/AIAssistant.vue'
+import UpdatePrompt from '@/components/shared/UpdatePrompt.vue'
 
 const sidebarOpen = ref(false)
 </script>
@@ -34,6 +35,7 @@ const sidebarOpen = ref(false)
     </div>
 
     <AIAssistant />
+    <UpdatePrompt />
   </div>
 </template>
 

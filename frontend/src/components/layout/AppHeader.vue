@@ -1,13 +1,12 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { Menu } from 'lucide-vue-next'
+import AlertsPanel from '@/components/shared/AlertsPanel.vue'
 
 const emit = defineEmits<{ toggleSidebar: [] }>()
 const route = useRoute()
-
 const title = computed(() => (route.meta?.title as string) ?? 'Finca')
-
-import { computed } from 'vue'
 </script>
 
 <template>
@@ -21,10 +20,11 @@ import { computed } from 'vue'
 
     <h1 class="text-lg font-semibold text-gray-800">{{ title }}</h1>
 
-    <div class="ml-auto flex items-center gap-3">
+    <div class="ml-auto flex items-center gap-2">
       <span class="text-sm text-gray-500 hidden sm:block">
         {{ new Date().toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long' }) }}
       </span>
+      <AlertsPanel />
     </div>
   </header>
 </template>
