@@ -1,12 +1,49 @@
-import Anthropic from '@anthropic-ai/sdk'
 import { supabase } from '@/lib/supabase'
 import { createMovement } from './inventoryService'
 import { createVaccinationRecord, createBatchVaccinationRecords } from './vaccinationService'
 
-const client = new Anthropic({
-  apiKey: import.meta.env.VITE_ANTHROPIC_API_KEY as string,
-  dangerouslyAllowBrowser: true
-})
+// ─── Anthropic API via fetch (no SDK — avoids Node.js compatibility issues) ──
+
+const API_URL = 'https://api.anthropic.com/v1/messages'
+
+interface TextBlock  { type: 'text'; text: string }
+interface ToolUseBlock { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
+interface ToolResultBlock { type: 'tool_result'; tool_use_id: string; content: string }
+type ContentBlock = TextBlock | ToolUseBlock
+
+interface ApiMessage {
+  role: 'user' | 'assistant'
+  content: string | ContentBlock[] | ToolResultBlock[]
+}
+
+interface ApiResponse {
+  stop_reason: 'end_turn' | 'tool_use'
+  content: ContentBlock[]
+}
+
+async function callClaude(messages: ApiMessage[]): Promise<ApiResponse> {
+  const res = await fetch(API_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': import.meta.env.VITE_ANTHROPIC_API_KEY as string,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true'
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 1024,
+      system: SYSTEM_PROMPT,
+      tools,
+      messages
+    })
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error((err as { error?: { message?: string } }).error?.message ?? `HTTP ${res.status}`)
+  }
+  return res.json()
+}
 
 const today = () => new Date().toISOString().slice(0, 10)
 
@@ -41,7 +78,13 @@ export const TOOL_LABELS: Record<string, string> = {
   complete_task: 'Completando tarea...',
 }
 
-const tools: Anthropic.Messages.Tool[] = [
+interface Tool {
+  name: string
+  description: string
+  input_schema: { type: 'object'; properties: Record<string, unknown>; required: string[] }
+}
+
+const tools: Tool[] = [
   // ── Consultas ──────────────────────────────────────────────────────────────
   {
     name: 'get_farm_summary',
@@ -653,34 +696,24 @@ export async function sendMessage(
   history: ConversationMessage[],
   onToolUse?: (label: string) => void
 ): Promise<string> {
-  const messages: Anthropic.Messages.MessageParam[] = history.map(m => ({
-    role: m.role, content: m.content
-  }))
-
-  let current = [...messages]
+  let current: ApiMessage[] = history.map(m => ({ role: m.role, content: m.content }))
 
   for (let i = 0; i < 8; i++) {
-    const response = await client.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 1024,
-      system: SYSTEM_PROMPT,
-      tools,
-      messages: current
-    })
+    const response = await callClaude(current)
 
     if (response.stop_reason === 'end_turn') {
-      const text = response.content.find(b => b.type === 'text') as Anthropic.Messages.TextBlock | undefined
+      const text = response.content.find(b => b.type === 'text') as TextBlock | undefined
       return text?.text ?? ''
     }
 
     if (response.stop_reason === 'tool_use') {
-      const toolBlocks = response.content.filter(b => b.type === 'tool_use') as Anthropic.Messages.ToolUseBlock[]
+      const toolBlocks = response.content.filter(b => b.type === 'tool_use') as ToolUseBlock[]
       current.push({ role: 'assistant', content: response.content })
 
-      const results: Anthropic.Messages.ToolResultBlockParam[] = []
+      const results: ToolResultBlock[] = []
       for (const tb of toolBlocks) {
         onToolUse?.(TOOL_LABELS[tb.name] ?? `Ejecutando ${tb.name}...`)
-        const result = await executeTool(tb.name, tb.input as Record<string, unknown>)
+        const result = await executeTool(tb.name, tb.input)
         results.push({ type: 'tool_result', tool_use_id: tb.id, content: result })
       }
       current.push({ role: 'user', content: results })
