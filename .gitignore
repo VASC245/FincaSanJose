@@ -1,0 +1,24 @@
+# Env files con API keys - NUNCA subir
+frontend/.env
+frontend/.env.local
+frontend/.env.*.local
+
+# Dependencies
+frontend/node_modules/
+
+# Build
+frontend/dist/
+frontend/dist-ssr/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Editor
+.DS_Store
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
