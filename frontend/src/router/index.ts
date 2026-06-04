@@ -107,6 +107,13 @@ const router = createRouter({
           name: 'gastos',
           component: () => import('@/views/gastos/GastosView.vue'),
           meta: { title: 'Gastos' }
+        },
+        // Asistente IA
+        {
+          path: 'asistente',
+          name: 'asistente',
+          component: () => import('@/views/AsistenteView.vue'),
+          meta: { title: 'Asistente IA' }
         }
       ]
     }

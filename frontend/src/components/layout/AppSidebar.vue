@@ -11,7 +11,8 @@ import {
   Leaf,
   Baby,
   Milk,
-  Receipt
+  Receipt,
+  Bot
 } from 'lucide-vue-next'
 
 defineProps<{ open: boolean }>()
@@ -27,7 +28,8 @@ const navItems = [
   { to: '/pigs/litters', label: 'Camadas', icon: Baby },
   { to: '/inventory', label: 'Inventario', icon: Package },
   { to: '/tasks', label: 'Tareas', icon: ClipboardList },
-  { to: '/gastos', label: 'Gastos', icon: Receipt }
+  { to: '/gastos', label: 'Gastos', icon: Receipt },
+  { to: '/asistente', label: 'Asistente IA', icon: Bot }
 ]
 
 function isActive(path: string) {

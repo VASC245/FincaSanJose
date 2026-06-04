@@ -190,8 +190,8 @@ function clearChat() {
   <Transition name="ai-panel">
     <div
       v-if="isOpen"
-      class="fixed bottom-20 right-4 z-50 w-[min(380px,calc(100vw-2rem))] bg-white rounded-2xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden"
-      style="height: min(520px, calc(100dvh - 100px))"
+      class="fixed bottom-20 right-4 z-50 w-[min(480px,calc(100vw-2rem))] bg-white rounded-2xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden"
+      style="height: min(680px, calc(100dvh - 100px))"
     >
       <!-- Header -->
       <div class="flex items-center gap-2.5 px-4 py-3 bg-gradient-to-r from-emerald-600 to-green-600 text-white shrink-0">
