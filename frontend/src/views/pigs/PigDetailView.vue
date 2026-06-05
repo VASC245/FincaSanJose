@@ -17,6 +17,13 @@ import {
   calcNextHeat, calcExpectedBirth, daysUntil,
   calcPigStage, pigAgeLabel, stageConfig
 } from '@/services/pigService'
+import {
+  fetchInseminationRecords,
+  createInseminationRecord,
+  updateInseminationConfirmation,
+  deleteInseminationRecord,
+  type InseminationRecord
+} from '@/services/inseminationService'
 import type { Animal, HeatRecord } from '@/types'
 
 const route = useRoute()
@@ -38,7 +45,7 @@ const isFemale = computed(() => animal.value?.sex === 'female')
 
 function formatDate(d: string | null | undefined) {
   if (!d) return '—'
-  return new Date(d).toLocaleDateString('es', { day: '2-digit', month: 'long', year: 'numeric' })
+  return new Date(`${d}T12:00:00`).toLocaleDateString('es-CO', { day: '2-digit', month: 'long', year: 'numeric' })
 }
 
 const statusVariant: Record<string, 'green' | 'red' | 'gray' | 'blue'> = {
@@ -54,6 +61,7 @@ const showPregnancyForm = ref(false)
 const pregnancyForm = reactive({
   service_date: localToday(),
   expected_birth: '',
+  semen_source: '',
   saving: false
 })
 
@@ -63,20 +71,23 @@ watch(
   { immediate: true }
 )
 
+const inseminationHistory = ref<InseminationRecord[]>([])
+const inseminHistLoading = ref(false)
+
 async function savePregnancy() {
   if (!animal.value || !pregnancyForm.service_date) return
   pregnancyForm.saving = true
   try {
     const expectedBirth = pregnancyForm.expected_birth || calcExpectedBirth(pregnancyForm.service_date)
-    const updated = await upsertPigDetail(animal.value.id, {
-      is_pregnant: true,
-      service_date: pregnancyForm.service_date,
+    const record = await createInseminationRecord({
+      animal_id: animal.value.id,
+      insemination_date: pregnancyForm.service_date,
+      semen_source: pregnancyForm.semen_source || null,
       expected_birth: expectedBirth,
-      litter_count: detail.value?.litter_count ?? 0
+      heat_check_date: addDaysToDate(pregnancyForm.service_date, 21)
     })
-    animal.value = { ...animal.value, pig_detail: updated }
+    inseminationHistory.value.unshift(record)
 
-    // Crear tarea automática de revisión de celo a los 21 días
     const heatCheckDate = addDaysToDate(pregnancyForm.service_date, 21)
     await supabase.from('tasks').insert({
       title: `Revisar retorno de celo — ${animal.value.ear_tag ?? animal.value.name}`,
@@ -89,8 +100,42 @@ async function savePregnancy() {
     })
 
     showPregnancyForm.value = false
+    pregnancyForm.semen_source = ''
   } catch (e) { alert('Error: ' + (e as Error).message) }
   finally { pregnancyForm.saving = false }
+}
+
+async function confirmPregnancyFromRecord(record: InseminationRecord) {
+  if (!animal.value) return
+  try {
+    const expectedBirth = record.expected_birth || calcExpectedBirth(record.insemination_date)
+    const updated = await upsertPigDetail(animal.value.id, {
+      is_pregnant: true,
+      service_date: record.insemination_date,
+      expected_birth: expectedBirth,
+      litter_count: detail.value?.litter_count ?? 0
+    })
+    animal.value = { ...animal.value, pig_detail: updated }
+
+    const updatedRecord = await updateInseminationConfirmation(record.id, true, localToday())
+    const idx = inseminationHistory.value.findIndex(r => r.id === record.id)
+    if (idx !== -1) inseminationHistory.value[idx] = updatedRecord
+  } catch (e) { alert('Error: ' + (e as Error).message) }
+}
+
+async function markNoPregnancyFromRecord(record: InseminationRecord) {
+  if (!confirm('¿Marcar esta inseminación como fallida (no quedó preñada)?')) return
+  try {
+    const updatedRecord = await updateInseminationConfirmation(record.id, false)
+    const idx = inseminationHistory.value.findIndex(r => r.id === record.id)
+    if (idx !== -1) inseminationHistory.value[idx] = updatedRecord
+  } catch (e) { alert('Error: ' + (e as Error).message) }
+}
+
+async function removeInseminationRecord(record: InseminationRecord) {
+  if (!confirm('¿Eliminar este registro de inseminación?')) return
+  await deleteInseminationRecord(record.id)
+  inseminationHistory.value = inseminationHistory.value.filter(r => r.id !== record.id)
 }
 
 async function clearPregnancy() {
@@ -123,8 +168,16 @@ onMounted(async () => {
   loading.value = false
   if (animal.value?.species === 'pig' && animal.value.sex === 'female') {
     heatLoading.value = true
-    try { heatRecords.value = await fetchHeatRecords(animal.value.id) }
-    finally { heatLoading.value = false }
+    inseminHistLoading.value = true
+    try {
+      ;[heatRecords.value, inseminationHistory.value] = await Promise.all([
+        fetchHeatRecords(animal.value.id),
+        fetchInseminationRecords(animal.value.id)
+      ])
+    } finally {
+      heatLoading.value = false
+      inseminHistLoading.value = false
+    }
   }
 })
 
@@ -250,11 +303,11 @@ function daysLabel(days: number): string {
         </div>
       </div>
 
-      <!-- Gestación (hembras) -->
+      <!-- Gestación e inseminaciones (hembras) -->
       <div v-if="isFemale" class="card space-y-4">
         <div class="flex items-center justify-between">
           <h3 class="text-sm font-semibold text-gray-700 flex items-center gap-2">
-            <Baby class="w-4 h-4 text-purple-500" /> Gestación
+            <Baby class="w-4 h-4 text-purple-500" /> Gestación e Inseminaciones
           </h3>
           <BaseButton
             v-if="!detail?.is_pregnant && !showPregnancyForm"
@@ -302,7 +355,8 @@ function daysLabel(days: number): string {
         </div>
 
         <!-- Estado: no preñada -->
-        <p v-else-if="!showPregnancyForm" class="text-sm text-gray-400 text-center py-2">
+        <p v-else-if="!showPregnancyForm && !inseminationHistory.length && !inseminHistLoading"
+          class="text-sm text-gray-400 text-center py-2">
           Sin preñez activa registrada.
         </p>
 
@@ -314,6 +368,12 @@ function daysLabel(days: number): string {
               label="Fecha de servicio / inseminación"
               type="date"
               required
+            />
+            <BaseInput
+              v-model="pregnancyForm.semen_source"
+              label="Nombre del verraco / semental"
+              type="text"
+              placeholder="Ej: Verraco Grande"
             />
             <BaseInput
               v-model="pregnancyForm.expected_birth"
@@ -340,6 +400,79 @@ function daysLabel(days: number): string {
           <div class="flex justify-end gap-2">
             <BaseButton variant="secondary" size="sm" @click="showPregnancyForm = false">Cancelar</BaseButton>
             <BaseButton size="sm" :loading="pregnancyForm.saving" @click="savePregnancy">Guardar</BaseButton>
+          </div>
+        </div>
+
+        <!-- Historial de inseminaciones -->
+        <div v-if="inseminHistLoading" class="text-sm text-gray-400 text-center py-2">Cargando historial...</div>
+        <div v-else-if="inseminationHistory.length > 0" class="pt-2 border-t border-gray-100 space-y-2">
+          <p class="text-xs font-semibold text-gray-400 uppercase tracking-wide">Historial de inseminaciones</p>
+          <div class="space-y-2">
+            <div
+              v-for="r in inseminationHistory"
+              :key="r.id"
+              class="rounded-lg border p-3 space-y-2"
+              :class="
+                r.pregnancy_confirmed === true
+                  ? 'bg-purple-50 border-purple-100'
+                  : r.pregnancy_confirmed === false
+                    ? 'bg-red-50 border-red-100'
+                    : 'bg-white border-gray-100'
+              "
+            >
+              <div class="flex items-start justify-between gap-2">
+                <div class="space-y-0.5 flex-1 min-w-0">
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <p class="text-sm font-semibold text-gray-800">{{ formatDate(r.insemination_date) }}</p>
+                    <span
+                      v-if="r.pregnancy_confirmed === null"
+                      class="text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-100 font-medium"
+                    >Pendiente</span>
+                    <span
+                      v-else-if="r.pregnancy_confirmed"
+                      class="text-xs px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 border border-purple-200 font-medium"
+                    >✓ Preñez confirmada</span>
+                    <span
+                      v-else
+                      class="text-xs px-2 py-0.5 rounded-full bg-red-50 text-red-600 border border-red-100 font-medium"
+                    >✕ No quedó preñada</span>
+                  </div>
+                  <p v-if="r.semen_source" class="text-xs text-gray-500">
+                    Verraco: <span class="font-medium text-gray-700">{{ r.semen_source }}</span>
+                  </p>
+                  <p v-if="r.expected_birth" class="text-xs text-gray-400">
+                    Parto estimado: {{ formatDate(r.expected_birth) }}
+                  </p>
+                  <p v-if="r.pregnancy_confirmed && r.pregnancy_confirmed_date" class="text-xs text-purple-600">
+                    Confirmado el {{ formatDate(r.pregnancy_confirmed_date) }}
+                  </p>
+                </div>
+                <button
+                  class="p-1 text-gray-300 hover:text-red-500 transition-colors flex-shrink-0"
+                  @click="removeInseminationRecord(r)"
+                >
+                  <Trash2 class="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              <!-- Acciones para registros pendientes -->
+              <div v-if="r.pregnancy_confirmed === null" class="flex gap-2 pt-1">
+                <button
+                  class="flex-1 text-xs font-semibold py-1.5 px-3 rounded-lg border border-purple-200 bg-white text-purple-700 hover:bg-purple-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  :disabled="!!detail?.is_pregnant"
+                  :title="detail?.is_pregnant ? 'Ya hay una preñez activa' : ''"
+                  @click="confirmPregnancyFromRecord(r)"
+                >
+                  ✓ Confirmar preñez
+                </button>
+                <button
+                  class="flex-1 text-xs font-semibold py-1.5 px-3 rounded-lg border border-red-100 bg-white text-red-500 hover:bg-red-50 transition-colors"
+                  @click="markNoPregnancyFromRecord(r)"
+                >
+                  ✕ No preñó
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 
