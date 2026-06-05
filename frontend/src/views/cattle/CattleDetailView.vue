@@ -214,6 +214,21 @@ onMounted(async () => {
         fetchMilkRecords(animal.value.id),
         fetchInseminationRecords(animal.value.id)
       ])
+
+      // Migrar inseminaciones antiguas: si el animal está preñado pero no tiene
+      // registros (se inseminó antes de que existiera esta funcionalidad)
+      const d = animal.value.cattle_detail
+      if (d?.is_pregnant && d.conception_date && inseminationHistory.value.length === 0) {
+        const record = await createInseminationRecord({
+          animal_id: animal.value.id,
+          insemination_date: d.conception_date,
+          expected_birth: d.expected_birth,
+          heat_check_date: addDaysToDate(d.conception_date, 21),
+          pregnancy_confirmed: true,
+          pregnancy_confirmed_date: d.conception_date
+        })
+        inseminationHistory.value = [record]
+      }
     } finally {
       milkLoading.value = false
       inseminHistLoading.value = false

@@ -30,6 +30,8 @@ export async function createInseminationRecord(payload: {
   expected_birth?: string | null
   heat_check_date?: string | null
   notes?: string | null
+  pregnancy_confirmed?: boolean | null
+  pregnancy_confirmed_date?: string | null
 }): Promise<InseminationRecord> {
   const { data, error } = await supabase
     .from('insemination_records')

@@ -174,6 +174,21 @@ onMounted(async () => {
         fetchHeatRecords(animal.value.id),
         fetchInseminationRecords(animal.value.id)
       ])
+
+      // Migrar inseminaciones antiguas: si la cerda está preñada pero no tiene
+      // registros (se inseminó antes de que existiera esta funcionalidad)
+      const d = animal.value.pig_detail
+      if (d?.is_pregnant && d.service_date && inseminationHistory.value.length === 0) {
+        const record = await createInseminationRecord({
+          animal_id: animal.value.id,
+          insemination_date: d.service_date,
+          expected_birth: d.expected_birth,
+          heat_check_date: addDaysToDate(d.service_date, 21),
+          pregnancy_confirmed: true,
+          pregnancy_confirmed_date: d.service_date
+        })
+        inseminationHistory.value = [record]
+      }
     } finally {
       heatLoading.value = false
       inseminHistLoading.value = false
