@@ -44,14 +44,14 @@ export async function createInseminationRecord(payload: {
 
 export async function updateInseminationConfirmation(
   id: string,
-  confirmed: boolean,
+  confirmed: boolean | null,
   confirmedDate?: string | null
 ): Promise<InseminationRecord> {
   const { data, error } = await supabase
     .from('insemination_records')
     .update({
       pregnancy_confirmed: confirmed,
-      pregnancy_confirmed_date: confirmed ? (confirmedDate ?? null) : null
+      pregnancy_confirmed_date: confirmed === true ? (confirmedDate ?? null) : null
     })
     .eq('id', id)
     .select()

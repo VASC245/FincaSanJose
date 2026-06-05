@@ -152,6 +152,28 @@ async function clearPregnancy() {
   } catch (e) { alert('Error: ' + (e as Error).message) }
 }
 
+async function undoPregnancyConfirmation() {
+  if (!animal.value) return
+  if (!confirm('¿Volver esta inseminación a "Pendiente de confirmación"? El animal quedará como no preñado hasta que confirmes de nuevo.')) return
+  try {
+    const updated = await upsertPigDetail(animal.value.id, {
+      is_pregnant: false,
+      service_date: null,
+      expected_birth: null,
+      litter_count: detail.value?.litter_count ?? 0
+    })
+    animal.value = { ...animal.value, pig_detail: updated }
+
+    // Resetear el registro confirmado más reciente a pendiente
+    const confirmed = inseminationHistory.value.find(r => r.pregnancy_confirmed === true)
+    if (confirmed) {
+      const reset = await updateInseminationConfirmation(confirmed.id, null)
+      const idx = inseminationHistory.value.findIndex(r => r.id === confirmed.id)
+      if (idx !== -1) inseminationHistory.value[idx] = reset
+    }
+  } catch (e) { alert('Error: ' + (e as Error).message) }
+}
+
 // ─── Celo ─────────────────────────────────────────────────────────────────────
 
 const heatRecords = ref<HeatRecord[]>([])
@@ -362,7 +384,10 @@ function daysLabel(days: number): string {
               </p>
             </div>
           </div>
-          <div class="flex justify-end">
+          <div class="flex justify-end gap-2">
+            <BaseButton variant="secondary" size="sm" @click="undoPregnancyConfirmation">
+              Volver a pendiente
+            </BaseButton>
             <BaseButton variant="secondary" size="sm" @click="clearPregnancy">
               Registrar parto
             </BaseButton>

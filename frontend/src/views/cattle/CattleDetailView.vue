@@ -201,6 +201,28 @@ async function clearPregnancy() {
   } catch (e) { alert('Error: ' + (e as Error).message) }
 }
 
+async function undoPregnancyConfirmation() {
+  if (!animal.value) return
+  if (!confirm('¿Volver esta inseminación a "Pendiente de confirmación"? La vaca quedará como no preñada hasta que confirmes de nuevo.')) return
+  try {
+    const updated = await upsertCattleDetail(animal.value.id, {
+      is_pregnant: false,
+      conception_date: null,
+      expected_birth: null,
+      last_birth_date: detail.value?.last_birth_date ?? null,
+      birth_count: detail.value?.birth_count ?? 0
+    })
+    animal.value = { ...animal.value, cattle_detail: updated }
+
+    const confirmed = inseminationHistory.value.find(r => r.pregnancy_confirmed === true)
+    if (confirmed) {
+      const reset = await updateInseminationConfirmation(confirmed.id, null)
+      const idx = inseminationHistory.value.findIndex(r => r.id === confirmed.id)
+      if (idx !== -1) inseminationHistory.value[idx] = reset
+    }
+  } catch (e) { alert('Error: ' + (e as Error).message) }
+}
+
 // ─── Lifecycle ────────────────────────────────────────────────────────────────
 
 onMounted(async () => {
@@ -390,7 +412,10 @@ const statusLabel: Record<string, string> = {
               </p>
             </div>
           </div>
-          <div class="flex justify-end">
+          <div class="flex justify-end gap-2">
+            <BaseButton variant="secondary" size="sm" @click="undoPregnancyConfirmation">
+              Volver a pendiente
+            </BaseButton>
             <BaseButton variant="secondary" size="sm" @click="clearPregnancy">
               Registrar parto
             </BaseButton>
