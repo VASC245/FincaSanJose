@@ -10,6 +10,8 @@ import VaccinationList from '@/components/animals/VaccinationList.vue'
 import LitterList from '@/components/pigs/LitterList.vue'
 import { useAnimalsStore } from '@/stores/animals'
 import { upsertPigDetail } from '@/services/animalService'
+import { supabase } from '@/lib/supabase'
+import { localToday, addDaysToDate } from '@/lib/dates'
 import {
   fetchHeatRecords, createHeatRecord, deleteHeatRecord,
   calcNextHeat, calcExpectedBirth, daysUntil,
@@ -50,7 +52,7 @@ const statusLabel: Record<string, string> = {
 
 const showPregnancyForm = ref(false)
 const pregnancyForm = reactive({
-  service_date: new Date().toISOString().slice(0, 10),
+  service_date: localToday(),
   expected_birth: '',
   saving: false
 })
@@ -65,13 +67,27 @@ async function savePregnancy() {
   if (!animal.value || !pregnancyForm.service_date) return
   pregnancyForm.saving = true
   try {
+    const expectedBirth = pregnancyForm.expected_birth || calcExpectedBirth(pregnancyForm.service_date)
     const updated = await upsertPigDetail(animal.value.id, {
       is_pregnant: true,
       service_date: pregnancyForm.service_date,
-      expected_birth: pregnancyForm.expected_birth || calcExpectedBirth(pregnancyForm.service_date),
+      expected_birth: expectedBirth,
       litter_count: detail.value?.litter_count ?? 0
     })
     animal.value = { ...animal.value, pig_detail: updated }
+
+    // Crear tarea automática de revisión de celo a los 21 días
+    const heatCheckDate = addDaysToDate(pregnancyForm.service_date, 21)
+    await supabase.from('tasks').insert({
+      title: `Revisar retorno de celo — ${animal.value.ear_tag ?? animal.value.name}`,
+      description: `Verificar si la cerda ${animal.value.ear_tag ?? animal.value.name} regresó al celo a los 21 días de inseminación. Si hay retorno, NO quedó preñada.`,
+      status: 'pending',
+      priority: 'high',
+      category: 'reproduction',
+      due_date: heatCheckDate,
+      animal_id: animal.value.id
+    })
+
     showPregnancyForm.value = false
   } catch (e) { alert('Error: ' + (e as Error).message) }
   finally { pregnancyForm.saving = false }
@@ -97,7 +113,7 @@ const heatRecords = ref<HeatRecord[]>([])
 const heatLoading = ref(false)
 const showHeatForm = ref(false)
 const heatForm = reactive({
-  observed_date: new Date().toISOString().slice(0, 10),
+  observed_date: localToday(),
   notes: '',
   saving: false
 })
@@ -123,7 +139,7 @@ async function submitHeat() {
     })
     heatRecords.value.unshift(record)
     showHeatForm.value = false
-    heatForm.observed_date = new Date().toISOString().slice(0, 10)
+    heatForm.observed_date = localToday()
     heatForm.notes = ''
   } catch (e) { alert('Error: ' + (e as Error).message) }
   finally { heatForm.saving = false }
@@ -267,6 +283,16 @@ function daysLabel(days: number): string {
                 {{ detail.expected_birth ? daysLabel(daysUntil(detail.expected_birth)) : '—' }}
               </p>
             </div>
+            <div v-if="detail.service_date">
+              <p class="text-xs text-purple-500 font-semibold uppercase tracking-wide">Revisión de celo</p>
+              <p class="text-sm font-medium text-purple-900 mt-0.5">
+                {{ formatDate(addDaysToDate(detail.service_date, 21)) }}
+              </p>
+              <p class="text-xs"
+                :class="daysUntil(addDaysToDate(detail.service_date, 21)) <= 0 ? 'text-red-500 font-semibold' : 'text-purple-500'">
+                {{ daysLabel(daysUntil(addDaysToDate(detail.service_date, 21))) }}
+              </p>
+            </div>
           </div>
           <div class="flex justify-end">
             <BaseButton variant="secondary" size="sm" @click="clearPregnancy">
@@ -281,7 +307,7 @@ function daysLabel(days: number): string {
         </p>
 
         <!-- Formulario registro servicio -->
-        <div v-if="showPregnancyForm" class="rounded-xl border border-purple-100 bg-purple-50 p-4 space-y-3">
+        <div v-if="showPregnancyForm" class="rounded-xl border border-purple-100 bg-purple-50 p-4 space-y-4">
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <BaseInput
               v-model="pregnancyForm.service_date"
@@ -291,10 +317,26 @@ function daysLabel(days: number): string {
             />
             <BaseInput
               v-model="pregnancyForm.expected_birth"
-              label="Parto esperado (auto)"
+              label="Parto esperado (114 días, auto)"
               type="date"
             />
           </div>
+          <!-- Info calculada -->
+          <div v-if="pregnancyForm.service_date" class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div class="rounded-lg bg-amber-50 border border-amber-100 px-3 py-2">
+              <p class="text-xs font-semibold text-amber-700">Revisión de retorno de celo</p>
+              <p class="text-sm font-bold text-amber-900">{{ formatDate(addDaysToDate(pregnancyForm.service_date, 21)) }}</p>
+              <p class="text-xs text-amber-600">Si regresa al celo → no quedó preñada</p>
+            </div>
+            <div class="rounded-lg bg-blue-50 border border-blue-100 px-3 py-2">
+              <p class="text-xs font-semibold text-blue-700">Parto esperado</p>
+              <p class="text-sm font-bold text-blue-900">{{ formatDate(pregnancyForm.expected_birth) }}</p>
+              <p class="text-xs text-blue-600">Gestación porcina: 114 días</p>
+            </div>
+          </div>
+          <p class="text-xs text-gray-500">
+            Se creará automáticamente una tarea de alta prioridad para revisar el retorno de celo a los 21 días.
+          </p>
           <div class="flex justify-end gap-2">
             <BaseButton variant="secondary" size="sm" @click="showPregnancyForm = false">Cancelar</BaseButton>
             <BaseButton size="sm" :loading="pregnancyForm.saving" @click="savePregnancy">Guardar</BaseButton>

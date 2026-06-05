@@ -85,20 +85,21 @@ export const HEAT_CYCLE_DAYS = 21
 export const GESTATION_DAYS = 114
 
 export function calcNextHeat(observedDate: string): string {
-  const d = new Date(observedDate)
+  const d = new Date(`${observedDate}T12:00:00`)
   d.setDate(d.getDate() + HEAT_CYCLE_DAYS)
-  return d.toISOString().slice(0, 10)
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
 }
 
 export function calcExpectedBirth(inseminationDate: string): string {
-  const d = new Date(inseminationDate)
+  const d = new Date(`${inseminationDate}T12:00:00`)
   d.setDate(d.getDate() + GESTATION_DAYS)
-  return d.toISOString().slice(0, 10)
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
 }
 
 export function daysUntil(targetDate: string): number {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
-  const target = new Date(targetDate)
+  const target = new Date(`${targetDate}T12:00:00`)
+  target.setHours(12, 0, 0, 0)
   return Math.round((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
 }

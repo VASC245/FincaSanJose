@@ -127,10 +127,16 @@ function setupRecognition() {
 
   recognition.onend = () => {
     isListening.value = false
-    if (input.value.trim()) send()
+    const pendingText = input.value.trim()
+    recognition = null  // la instancia no puede reutilizarse; se crea una nueva al siguiente uso
+    if (pendingText) send()
   }
 
-  recognition.onerror = () => { isListening.value = false; interimText.value = '' }
+  recognition.onerror = () => {
+    isListening.value = false
+    interimText.value = ''
+    recognition = null
+  }
 }
 
 function toggleMic() {
@@ -139,17 +145,25 @@ function toggleMic() {
 }
 
 function startListening() {
-  if (!recognition) setupRecognition()
+  setupRecognition()  // siempre instancia nueva para evitar InvalidStateError
   if (!recognition) return
   input.value = ''
   interimText.value = ''
   isListening.value = true
-  recognition.start()
+  try {
+    recognition.start()
+  } catch {
+    isListening.value = false
+    recognition = null
+  }
 }
 
 function stopListening() {
-  if (recognition && isListening.value) recognition.stop()
   isListening.value = false
+  interimText.value = ''
+  if (recognition) {
+    try { recognition.stop() } catch { /* ya detuvo */ }
+  }
 }
 
 // ─── Open / close ─────────────────────────────────────────────────────────────

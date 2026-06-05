@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { reactive, ref, onMounted, computed } from 'vue'
+import { localToday } from '@/lib/dates'
 import BaseModal from '@/components/shared/BaseModal.vue'
 import BaseInput from '@/components/shared/BaseInput.vue'
 import BaseButton from '@/components/shared/BaseButton.vue'
@@ -30,7 +31,7 @@ const filteredItems = computed(() => {
 
 const form = reactive({
   inventory_item_id: '',
-  applied_date: new Date().toISOString().slice(0, 10),
+  applied_date: localToday(),
   next_date: '',
   applied_by: '',
   notes: '',
@@ -64,7 +65,7 @@ async function handleSubmit() {
     emit('added', record)
     // Reset
     form.inventory_item_id = ''
-    form.applied_date = new Date().toISOString().slice(0, 10)
+    form.applied_date = localToday()
     form.next_date = ''
     form.applied_by = ''
     form.notes = ''

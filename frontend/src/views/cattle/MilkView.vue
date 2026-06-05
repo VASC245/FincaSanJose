@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, reactive } from 'vue'
+import { localToday } from '@/lib/dates'
 import { Milk, ChevronDown, ChevronRight, Plus, Trash2 } from 'lucide-vue-next'
 import BaseButton from '@/components/shared/BaseButton.vue'
 import BaseInput from '@/components/shared/BaseInput.vue'
@@ -28,7 +29,7 @@ function currentMonthKey() {
 // form
 const showSessionForm = ref(false)
 const sessionForm = reactive({
-  recorded_date: new Date().toISOString().slice(0, 10),
+  recorded_date: localToday(),
   liters: '' as string | number,
   notes: '',
   saving: false
@@ -47,7 +48,7 @@ async function submitSession() {
     showSessionForm.value = false
     sessionForm.liters = ''
     sessionForm.notes = ''
-    sessionForm.recorded_date = new Date().toISOString().slice(0, 10)
+    sessionForm.recorded_date = localToday()
   } catch (e) { alert('Error: ' + (e as Error).message) }
   finally { sessionForm.saving = false }
 }
@@ -72,7 +73,7 @@ const cows = computed(() =>
 const showCowForm = ref(false)
 const cowForm = reactive({
   animal_id: '',
-  recorded_date: new Date().toISOString().slice(0, 10),
+  recorded_date: localToday(),
   liters: '' as string | number,
   notes: '',
   saving: false

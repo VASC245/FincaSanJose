@@ -10,12 +10,12 @@ export interface FincaAlert {
   link?: string
 }
 
-const today = () => new Date().toISOString().slice(0, 10)
+import { localToday, localDateOffset, addDaysToDate } from '@/lib/dates'
+
+const today = localToday
 
 function addDays(days: number) {
-  const d = new Date()
-  d.setDate(d.getDate() + days)
-  return d.toISOString().slice(0, 10)
+  return localDateOffset(days)
 }
 
 export async function fetchAlerts(): Promise<FincaAlert[]> {
@@ -65,11 +65,17 @@ export async function fetchAlerts(): Promise<FincaAlert[]> {
       .order('observed_date', { ascending: false }),
   ])
 
+  function daysDiff(dateStr: string): number {
+    const todayMidnight = new Date(); todayMidnight.setHours(0,0,0,0)
+    const target = new Date(`${dateStr}T12:00:00`)
+    return Math.round((target.getTime() - todayMidnight.getTime()) / 86_400_000)
+  }
+
   // ── Partos vacas ────────────────────────────────────────────────────────────
   for (const r of cattlePartos ?? []) {
     const animal = (r.animal as any)
     const name = animal?.ear_tag ?? animal?.name ?? 'Sin arete'
-    const dias = Math.ceil((new Date(r.expected_birth).getTime() - Date.now()) / 86_400_000)
+    const dias = daysDiff(r.expected_birth)
     alerts.push({
       id: `parto-vaca-${name}`,
       level: dias <= 3 ? 'critical' : 'warning',
@@ -83,7 +89,7 @@ export async function fetchAlerts(): Promise<FincaAlert[]> {
   for (const r of pigPartos ?? []) {
     const animal = (r.animal as any)
     const name = animal?.ear_tag ?? animal?.name ?? 'Sin arete'
-    const dias = Math.ceil((new Date(r.expected_birth).getTime() - Date.now()) / 86_400_000)
+    const dias = daysDiff(r.expected_birth)
     alerts.push({
       id: `parto-cerda-${name}`,
       level: dias <= 3 ? 'critical' : 'warning',
@@ -116,7 +122,7 @@ export async function fetchAlerts(): Promise<FincaAlert[]> {
 
   // ── Tareas vencidas ─────────────────────────────────────────────────────────
   for (const task of overdueTasks ?? []) {
-    const dias = Math.ceil((Date.now() - new Date(task.due_date).getTime()) / 86_400_000)
+    const dias = Math.abs(daysDiff(task.due_date))
     alerts.push({
       id: `tarea-${task.title}`,
       level: dias >= 3 ? 'critical' : 'warning',
@@ -126,7 +132,7 @@ export async function fetchAlerts(): Promise<FincaAlert[]> {
     })
   }
 
-  // ── Próximas inseminaciones (último celo + 21 días) ─────────────────────────
+  // ── Próximas inseminaciones porcinas (último celo + 21 días) ─────────────────
   const seenAnimals = new Set<string>()
   for (const r of heatRecords ?? []) {
     const animal = (r.animal as any)
@@ -134,9 +140,8 @@ export async function fetchAlerts(): Promise<FincaAlert[]> {
     if (seenAnimals.has(name)) continue
     seenAnimals.add(name)
 
-    const nextHeat = new Date(r.observed_date)
-    nextHeat.setDate(nextHeat.getDate() + 21)
-    const diasHastaProximo = Math.ceil((nextHeat.getTime() - Date.now()) / 86_400_000)
+    const nextHeatDate = addDaysToDate(r.observed_date, 21)
+    const diasHastaProximo = daysDiff(nextHeatDate)
 
     if (diasHastaProximo >= 0 && diasHastaProximo <= 5) {
       alerts.push({
@@ -146,6 +151,65 @@ export async function fetchAlerts(): Promise<FincaAlert[]> {
         description: diasHastaProximo === 0
           ? 'Hoy es el día estimado de celo'
           : `En ${diasHastaProximo} día${diasHastaProximo !== 1 ? 's' : ''} (ciclo de 21 días)`,
+        link: '/pigs'
+      })
+    }
+  }
+
+  // ── Revisión de retorno de celo post-inseminación (bovinos y porcinos) ──────
+  // Si a los 21 días post-inseminación regresa el celo → no quedó preñada
+  const [{ data: cattleInsem }, { data: pigInsem }] = await Promise.all([
+    supabase
+      .from('cattle_details')
+      .select('conception_date, animal:animals!cattle_details_animal_id_fkey(ear_tag, name)')
+      .eq('is_pregnant', true)
+      .not('conception_date', 'is', null)
+      .gte('conception_date', addDays(-30))
+      .lte('conception_date', addDays(-18)),
+    supabase
+      .from('pig_details')
+      .select('service_date, animal:animals!pig_details_animal_id_fkey(ear_tag, name)')
+      .eq('is_pregnant', true)
+      .not('service_date', 'is', null)
+      .gte('service_date', addDays(-30))
+      .lte('service_date', addDays(-18)),
+  ])
+
+  for (const r of cattleInsem ?? []) {
+    const animal = (r.animal as any)
+    const name = animal?.ear_tag ?? animal?.name ?? 'Sin arete'
+    const checkDate = addDaysToDate(r.conception_date, 21)
+    const diasParaRevision = daysDiff(checkDate)
+    if (diasParaRevision >= -2 && diasParaRevision <= 3) {
+      alerts.push({
+        id: `revision-celo-vaca-${name}`,
+        level: diasParaRevision <= 0 ? 'critical' : 'warning',
+        title: `Revisar preñez: vaca ${name}`,
+        description: diasParaRevision < 0
+          ? `Verificar si regresó el celo (día ${Math.abs(diasParaRevision)} de revisión)`
+          : diasParaRevision === 0
+            ? 'Hoy — revisar si regresó el celo para confirmar preñez'
+            : `En ${diasParaRevision} días — revisión de retorno de celo`,
+        link: '/cattle'
+      })
+    }
+  }
+
+  for (const r of pigInsem ?? []) {
+    const animal = (r.animal as any)
+    const name = animal?.ear_tag ?? animal?.name ?? 'Sin arete'
+    const checkDate = addDaysToDate(r.service_date, 21)
+    const diasParaRevision = daysDiff(checkDate)
+    if (diasParaRevision >= -2 && diasParaRevision <= 3) {
+      alerts.push({
+        id: `revision-celo-cerda-${name}`,
+        level: diasParaRevision <= 0 ? 'critical' : 'warning',
+        title: `Revisar preñez: cerda ${name}`,
+        description: diasParaRevision < 0
+          ? `Verificar si regresó el celo (día ${Math.abs(diasParaRevision)} de revisión)`
+          : diasParaRevision === 0
+            ? 'Hoy — revisar si regresó el celo para confirmar preñez'
+            : `En ${diasParaRevision} días — revisión de retorno de celo`,
         link: '/pigs'
       })
     }

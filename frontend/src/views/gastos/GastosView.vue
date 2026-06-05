@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { localToday } from '@/lib/dates'
 import { useGastosStore } from '@/stores/gastos'
 import { fetchItems, createMovement } from '@/services/inventoryService'
 import type { Gasto, GastoCategoria, GastoFormData, InventoryItem } from '@/types'
 import BaseButton from '@/components/shared/BaseButton.vue'
 import BaseModal from '@/components/shared/BaseModal.vue'
 import StatCard from '@/components/shared/StatCard.vue'
-import { PlusCircle, Trash2, Pencil, Receipt, ImageOff } from 'lucide-vue-next'
+import { PlusCircle, Trash2, Pencil, Receipt, ImageOff, Plus, X } from 'lucide-vue-next'
 
 const store = useGastosStore()
 
@@ -25,18 +26,36 @@ const saving = ref(false)
 const fotoPreview = ref<string | null>(null)
 const fotoFile = ref<File | null>(null)
 
-const invItemId = ref('')
-const invQuantity = ref<number>(0)
+// ─── Inventario multi-línea ───────────────────────────────────────────────────
+
+interface InvLine { item_id: string; name: string; unit: string; quantity: number }
+const invLines = ref<InvLine[]>([])
 const invSearch = ref('')
+const showDropdown = ref(false)
+
 const invFiltered = computed(() => {
-  if (!invSearch.value.trim()) return inventoryItems.value
-  const q = invSearch.value.toLowerCase()
-  return inventoryItems.value.filter(i => i.name.toLowerCase().includes(q))
+  const q = invSearch.value.trim().toLowerCase()
+  const all = q ? inventoryItems.value.filter(i => i.name.toLowerCase().includes(q)) : inventoryItems.value
+  return all.slice(0, 8)
 })
-const invSelected = computed(() => inventoryItems.value.find(i => i.id === invItemId.value) ?? null)
+
+function addInvItem(item: InventoryItem) {
+  const existing = invLines.value.find(l => l.item_id === item.id)
+  if (existing) {
+    existing.quantity += 1
+  } else {
+    invLines.value.push({ item_id: item.id, name: item.name, unit: item.unit, quantity: 1 })
+  }
+  invSearch.value = ''
+  showDropdown.value = false
+}
+
+function removeInvLine(idx: number) {
+  invLines.value.splice(idx, 1)
+}
 
 const form = ref<GastoFormData>({
-  fecha: new Date().toISOString().slice(0, 10),
+  fecha: localToday(),
   monto: 0,
   descripcion: '',
   categoria: 'otro',
@@ -47,16 +66,10 @@ async function openNew() {
   editing.value = null
   fotoPreview.value = null
   fotoFile.value = null
-  invItemId.value = ''
-  invQuantity.value = 0
+  invLines.value = []
   invSearch.value = ''
-  form.value = {
-    fecha: new Date().toISOString().slice(0, 10),
-    monto: 0,
-    descripcion: '',
-    categoria: 'otro',
-    foto_url: null
-  }
+  showDropdown.value = false
+  form.value = { fecha: localToday(), monto: 0, descripcion: '', categoria: 'otro', foto_url: null }
   await ensureInventory()
   showModal.value = true
 }
@@ -65,13 +78,7 @@ function openEdit(g: Gasto) {
   editing.value = g
   fotoPreview.value = g.foto_url
   fotoFile.value = null
-  form.value = {
-    fecha: g.fecha,
-    monto: g.monto,
-    descripcion: g.descripcion,
-    categoria: g.categoria,
-    foto_url: g.foto_url
-  }
+  form.value = { fecha: g.fecha, monto: g.monto, descripcion: g.descripcion, categoria: g.categoria, foto_url: g.foto_url }
   showModal.value = true
 }
 
@@ -89,15 +96,18 @@ async function submit() {
       await store.editGasto(editing.value.id, form.value, fotoFile.value ?? undefined)
     } else {
       await store.addGasto(form.value, fotoFile.value ?? undefined)
-      if (invItemId.value && invQuantity.value > 0) {
-        await createMovement({
-          item_id: invItemId.value,
-          type: 'in',
-          quantity: invQuantity.value,
-          date: form.value.fecha,
-          notes: `Compra: ${form.value.descripcion}`
-        })
-      }
+      // Registrar movimiento de entrada por cada producto seleccionado
+      await Promise.all(
+        invLines.value
+          .filter(l => l.quantity > 0)
+          .map(l => createMovement({
+            item_id: l.item_id,
+            type: 'in',
+            quantity: l.quantity,
+            date: form.value.fecha,
+            notes: `Compra: ${form.value.descripcion}`
+          }))
+      )
     }
     showModal.value = false
   } finally {
@@ -327,35 +337,66 @@ const lightboxUrl = ref<string | null>(null)
           </select>
         </div>
 
-        <!-- Vincular inventario (solo en nuevos gastos) -->
-        <div v-if="!editing" class="border border-slate-200 rounded-lg p-3 space-y-2">
+        <!-- Vincular inventario — multi-producto (solo en nuevos gastos) -->
+        <div v-if="!editing" class="border border-slate-200 rounded-lg p-3 space-y-3">
           <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide">Agregar al inventario (opcional)</p>
-          <input
-            v-model="invSearch"
-            type="text"
-            placeholder="Buscar producto..."
-            class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-          />
-          <select
-            v-model="invItemId"
-            class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-          >
-            <option value="">Sin vinculación</option>
-            <option v-for="item in invFiltered" :key="item.id" :value="item.id">
-              {{ item.name }} ({{ item.quantity }} {{ item.unit }} actuales)
-            </option>
-          </select>
-          <div v-if="invItemId" class="flex items-center gap-2">
-            <label class="text-sm text-slate-600 whitespace-nowrap">Cantidad comprada:</label>
+
+          <!-- Buscador con dropdown -->
+          <div class="relative">
             <input
-              v-model.number="invQuantity"
-              type="number"
-              :min="0.01"
-              step="0.01"
-              class="w-24 border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+              v-model="invSearch"
+              type="text"
+              placeholder="Buscar producto para agregar..."
+              autocomplete="off"
+              class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+              @focus="showDropdown = true"
+              @blur="setTimeout(() => showDropdown = false, 150)"
             />
-            <span class="text-sm text-slate-500">{{ invSelected?.unit }}</span>
+            <!-- Dropdown -->
+            <div
+              v-if="showDropdown && invFiltered.length"
+              class="absolute z-10 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg overflow-hidden"
+            >
+              <button
+                v-for="item in invFiltered"
+                :key="item.id"
+                type="button"
+                class="w-full text-left px-3 py-2 text-sm hover:bg-emerald-50 flex items-center justify-between gap-2"
+                @mousedown.prevent="addInvItem(item)"
+              >
+                <span>{{ item.name }}</span>
+                <span class="text-xs text-slate-400 shrink-0">{{ item.quantity }} {{ item.unit }}</span>
+              </button>
+            </div>
           </div>
+
+          <!-- Lista de productos seleccionados -->
+          <div v-if="invLines.length" class="space-y-2">
+            <div
+              v-for="(line, idx) in invLines"
+              :key="line.item_id"
+              class="flex items-center gap-2 bg-slate-50 rounded-lg px-3 py-2"
+            >
+              <span class="flex-1 text-sm text-slate-700 truncate">{{ line.name }}</span>
+              <input
+                v-model.number="line.quantity"
+                type="number"
+                min="0.01"
+                step="0.01"
+                class="w-20 border border-slate-300 rounded-md px-2 py-1 text-sm text-right focus:outline-none focus:ring-1 focus:ring-primary-500"
+              />
+              <span class="text-xs text-slate-500 w-8 shrink-0">{{ line.unit }}</span>
+              <button
+                type="button"
+                class="p-1 text-slate-300 hover:text-red-500 transition-colors shrink-0"
+                @click="removeInvLine(idx)"
+              >
+                <X class="w-4 h-4" />
+              </button>
+            </div>
+            <p class="text-xs text-slate-400">{{ invLines.length }} producto{{ invLines.length !== 1 ? 's' : '' }} seleccionado{{ invLines.length !== 1 ? 's' : '' }}</p>
+          </div>
+          <p v-else class="text-xs text-slate-400">Ningún producto seleccionado — busca arriba para agregar.</p>
         </div>
 
         <!-- Foto factura -->
@@ -369,7 +410,6 @@ const lightboxUrl = ref<string | null>(null)
               ref="fotoInput"
               type="file"
               accept="image/*"
-              capture="environment"
               class="hidden"
               @change="onFotoChange"
             />
