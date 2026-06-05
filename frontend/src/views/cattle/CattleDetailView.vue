@@ -382,8 +382,46 @@ const statusLabel: Record<string, string> = {
           </div>
         </div>
 
-        <!-- No preñada -->
-        <p v-else-if="!showInseminationForm && !inseminationHistory.length && !inseminHistLoading"
+        <!-- Inseminaciones pendientes de confirmación (mostrar prominentemente cuando no está preñada) -->
+        <template v-if="!detail?.is_pregnant && !inseminHistLoading">
+          <div
+            v-for="r in inseminationHistory.filter(x => x.pregnancy_confirmed === null)"
+            :key="'pending-' + r.id"
+            class="rounded-xl bg-amber-50 border border-amber-200 p-4 space-y-3"
+          >
+            <div class="flex items-center gap-2">
+              <span class="text-base">⏳</span>
+              <p class="text-sm font-semibold text-amber-800">Inseminación pendiente de confirmación</p>
+            </div>
+            <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 text-sm">
+              <div>
+                <p class="text-xs text-amber-600 font-medium uppercase tracking-wide">Fecha</p>
+                <p class="font-semibold text-amber-900">{{ formatDate(r.insemination_date) }}</p>
+              </div>
+              <div v-if="r.semen_source">
+                <p class="text-xs text-amber-600 font-medium uppercase tracking-wide">Semental</p>
+                <p class="font-semibold text-amber-900">{{ r.semen_source }}</p>
+              </div>
+              <div v-if="r.expected_birth">
+                <p class="text-xs text-amber-600 font-medium uppercase tracking-wide">Parto estimado</p>
+                <p class="font-semibold text-amber-900">{{ formatDate(r.expected_birth) }}</p>
+              </div>
+            </div>
+            <p class="text-xs text-amber-600">¿La vaca quedó preñada? Confirma o descarta esta inseminación.</p>
+            <div class="flex gap-2">
+              <BaseButton size="sm" @click="confirmPregnancyFromRecord(r)">
+                ✓ Confirmar preñez
+              </BaseButton>
+              <BaseButton variant="secondary" size="sm" @click="markNoPregnancyFromRecord(r)">
+                ✕ No preñó
+              </BaseButton>
+            </div>
+          </div>
+        </template>
+
+        <!-- No preñada y sin pendientes -->
+        <p v-if="!detail?.is_pregnant && !showInseminationForm && !inseminHistLoading
+              && !inseminationHistory.filter(x => x.pregnancy_confirmed === null).length"
           class="text-sm text-gray-400 text-center py-2">
           Sin gestación activa.
         </p>
