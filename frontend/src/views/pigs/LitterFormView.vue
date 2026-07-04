@@ -6,6 +6,7 @@ import BaseInput from '@/components/shared/BaseInput.vue'
 import BaseButton from '@/components/shared/BaseButton.vue'
 import { usePigsStore } from '@/stores/pigs'
 import { useAnimalsStore } from '@/stores/animals'
+import { localToday } from '@/lib/dates'
 import type { Animal, AnimalFormData } from '@/types'
 
 const route = useRoute()
@@ -17,7 +18,7 @@ const loading = ref(false)
 const mother = ref<Animal | null>(null)
 
 const form = reactive({
-  birth_date: new Date().toISOString().slice(0, 10),
+  birth_date: localToday(),
   total_born: 0,
   born_alive: 0,
   notes: ''

@@ -925,17 +925,11 @@ async function registerCattleBirth(input: {
   // Create cattle_details for calf
   await supabase.from('cattle_details').insert({ animal_id: calf.id })
 
-  // Update cow: not pregnant, update last_birth_date, increment birth_count
+  // El trigger trg_update_cow_birth_count ya incrementó birth_count y marcó
+  // la vaca como no preñada — aquí solo leemos el conteo para el mensaje
   const { data: cowDetail } = await supabase.from('cattle_details')
     .select('birth_count').eq('animal_id', cow.id).single()
-  const newCount = ((cowDetail as { birth_count: number } | null)?.birth_count ?? 0) + 1
-
-  await supabase.from('cattle_details').update({
-    is_pregnant: false,
-    last_birth_date: input.birth_date,
-    birth_count: newCount,
-    expected_birth: null
-  }).eq('animal_id', cow.id)
+  const newCount = (cowDetail as { birth_count: number } | null)?.birth_count ?? 1
 
   const terneroLabel = input.calf_ear_tag ? `arete ${input.calf_ear_tag}` : (input.calf_name ?? 'sin identificar')
   return `✓ Parto registrado: ${cow.ear_tag ?? cow.name} parió un ternero ${input.calf_sex === 'male' ? 'macho' : 'hembra'} (${terneroLabel}) el ${input.birth_date}. Parto #${newCount}. Estado de preñez actualizado a no preñada.`
@@ -956,17 +950,11 @@ async function registerLitter(input: {
   })
   if (litterError) return `Error: ${litterError.message}`
 
-  // Update sow: not pregnant, increment litter_count
+  // El trigger trg_update_pig_litter_count ya incrementó litter_count y marcó
+  // la cerda como no preñada — aquí solo leemos el conteo para el mensaje
   const { data: sowDetail } = await supabase.from('pig_details')
     .select('litter_count').eq('animal_id', sow.id).single()
-  const newCount = ((sowDetail as { litter_count: number } | null)?.litter_count ?? 0) + 1
-
-  await supabase.from('pig_details').update({
-    is_pregnant: false,
-    litter_count: newCount,
-    expected_birth: null,
-    service_date: null
-  }).eq('animal_id', sow.id)
+  const newCount = (sowDetail as { litter_count: number } | null)?.litter_count ?? 1
 
   return `✓ Camada registrada: ${sow.ear_tag ?? sow.name} — ${input.total_born} nacidos (${input.born_alive} vivos) el ${input.birth_date}. Camada #${newCount}. Estado de preñez actualizado.`
 }
