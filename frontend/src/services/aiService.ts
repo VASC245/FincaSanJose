@@ -3,9 +3,13 @@ import { createMovement } from './inventoryService'
 import { createVaccinationRecord, createBatchVaccinationRecords } from './vaccinationService'
 import { localToday, localDateOffset, addDaysToDate } from '@/lib/dates'
 
-// ─── Anthropic API via fetch (no SDK — avoids Node.js compatibility issues) ──
+// ─── Llamadas a Claude vía Edge Function ai-chat ─────────────────────────────
+// La API key de Anthropic vive como secreto del servidor; el navegador solo
+// habla con la Edge Function (que fuerza modelo, system prompt y max_tokens).
 
-const API_URL = 'https://api.anthropic.com/v1/messages'
+const API_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-chat`
+
+const today = localToday
 
 interface TextBlock  { type: 'text'; text: string }
 interface ToolUseBlock { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
@@ -22,85 +26,17 @@ interface ApiResponse {
   content: ContentBlock[]
 }
 
-const today = localToday
-
-function buildSystemPrompt(): string {
-  return `Eres el asistente inteligente de la Finca San José, una finca agropecuaria en Colombia.
-Respondes siempre en español, de forma directa y concisa. Tienes acceso completo a todos los datos de la finca y puedes consultar o registrar cualquier información.
-
-HOY: ${today()}
-
-═══ DATOS DISPONIBLES ═══
-
-ANIMALES (tabla: animals)
-- Especies: cattle (bovinos), pig (porcinos)
-- Estados: active, sold, deceased, culled
-- Etapas bovinos: calf, heifer, cow, bull, steer
-- Etapas porcinos: piglet, gilt, sow, boar, fattening
-
-BOVINOS (tabla: cattle_details)
-- Preñez: is_pregnant, conception_date, expected_birth, last_birth_date, birth_count
-- Partos: tabla calf_births (cow_id, calf_id, birth_date)
-
-PORCINOS (tabla: pig_details)
-- Preñez: is_pregnant, service_date, expected_birth, litter_count
-- Camadas: tabla litters (sow_id, birth_date, total_born, born_alive)
-- Celos: tabla heat_records (animal_id, observed_date) — ciclo 21 días
-
-INSEMINACIONES (tabla: insemination_records)
-- Flujo: al reportarse una inseminación/monta usa register_insemination
-  (crea el registro + chequeo de celo al día 21 + tarea recordatorio).
-- La preñez se confirma ~21 días después si NO hubo retorno de celo:
-  usa update_pregnancy con is_pregnant=true.
-- Gestación: bovinos 280 días, porcinos 114 días.
-
-VACUNAS / MEDICAMENTOS
-- vaccination_records: aplicaciones por animal
-- vaccines: catálogo de vacunas
-- inventory_items: los productos se buscan aquí por nombre
-
-INVENTARIO
-- inventory_categories: categorías de productos
-- inventory_items: nombre, cantidad, unidad, stock_mínimo
-- inventory_movements: entradas (in) y salidas (out) — trigger actualiza stock automáticamente
-
-PRODUCCIÓN DE LECHE
-- milk_sessions: producción total del hato por ordeño
-- milk_records: producción por vaca individual
-
-TAREAS (tabla: tasks)
-- Estados: pending, in_progress, completed
-- Prioridades: low, medium, high
-- Categorías: health, feeding, maintenance, reproduction, other
-
-GASTOS (tabla: gastos)
-- Campos: fecha, monto (COP), descripcion, categoria, foto_url
-- Categorías: alimentacion, veterinaria, mantenimiento, equipos, combustible, personal, otro
-
-═══ REGLAS ═══
-- Si no se especifica fecha → usa hoy (${today()})
-- Para acciones, ejecútalas directamente y confirma lo hecho
-- Si necesitas más datos para responder bien, usa la herramienta adecuada
-- Sé conciso — una o dos oraciones por respuesta si es posible
-- Los montos son en pesos colombianos (COP)`
-}
-
+// El system prompt (con la fecha de hoy) se construye en la Edge Function.
 async function callClaude(messages: ApiMessage[]): Promise<ApiResponse> {
+  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string
   const res = await fetch(API_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'x-api-key': import.meta.env.VITE_ANTHROPIC_API_KEY as string,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true'
+      'Authorization': `Bearer ${anonKey}`,
+      'apikey': anonKey
     },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 2048,
-      system: buildSystemPrompt(),
-      tools,
-      messages
-    })
+    body: JSON.stringify({ tools, messages })
   })
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
