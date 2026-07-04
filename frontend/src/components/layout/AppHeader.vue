@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { Menu } from 'lucide-vue-next'
 import AlertsPanel from '@/components/shared/AlertsPanel.vue'
+import NotificationBell from '@/components/shared/NotificationBell.vue'
 
 const emit = defineEmits<{ toggleSidebar: [] }>()
 const route = useRoute()
@@ -24,6 +25,7 @@ const title = computed(() => (route.meta?.title as string) ?? 'Finca')
       <span class="text-sm text-gray-500 hidden sm:block">
         {{ new Date().toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long' }) }}
       </span>
+      <NotificationBell />
       <AlertsPanel />
     </div>
   </header>
