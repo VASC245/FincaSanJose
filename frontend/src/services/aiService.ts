@@ -47,6 +47,13 @@ PORCINOS (tabla: pig_details)
 - Camadas: tabla litters (sow_id, birth_date, total_born, born_alive)
 - Celos: tabla heat_records (animal_id, observed_date) — ciclo 21 días
 
+INSEMINACIONES (tabla: insemination_records)
+- Flujo: al reportarse una inseminación/monta usa register_insemination
+  (crea el registro + chequeo de celo al día 21 + tarea recordatorio).
+- La preñez se confirma ~21 días después si NO hubo retorno de celo:
+  usa update_pregnancy con is_pregnant=true.
+- Gestación: bovinos 280 días, porcinos 114 días.
+
 VACUNAS / MEDICAMENTOS
 - vaccination_records: aplicaciones por animal
 - vaccines: catálogo de vacunas
@@ -129,6 +136,7 @@ export const TOOL_LABELS: Record<string, string> = {
   register_milk_session:    'Registrando producción de leche...',
   register_milk_record:     'Registrando leche por vaca...',
   register_heat:            'Registrando celo...',
+  register_insemination:    'Registrando inseminación...',
   update_pregnancy:         'Actualizando estado de preñez...',
   create_expense:           'Registrando gasto...',
   create_task:              'Creando tarea...',
@@ -448,8 +456,22 @@ const tools: Tool[] = [
     }
   },
   {
+    name: 'register_insemination',
+    description: 'Registra una inseminación o monta de una vaca o cerda. Crea el registro con fecha de chequeo de retorno de celo (día 21), fecha probable de parto y una tarea recordatorio. NO marca al animal como preñado todavía — la preñez se confirma después con update_pregnancy si no hubo retorno de celo.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        animal_ear_tag: { type: 'string', description: 'Arete o nombre de la hembra' },
+        insemination_date: { type: 'string', description: 'Fecha de inseminación/monta YYYY-MM-DD' },
+        semen_source: { type: 'string', description: 'Origen del semen o nombre del macho (opcional)' },
+        notes: { type: 'string', description: 'Notas (opcional)' }
+      },
+      required: ['animal_ear_tag', 'insemination_date']
+    }
+  },
+  {
     name: 'update_pregnancy',
-    description: 'Actualiza el estado de preñez de una vaca o cerda.',
+    description: 'Confirma o descarta la preñez de una vaca o cerda. Al confirmar (is_pregnant=true) también marca como confirmada la inseminación pendiente más reciente, o crea el registro si no existe.',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -1070,6 +1092,49 @@ async function registerHeat(input: {
   return `✓ Celo registrado para ${animal.ear_tag ?? animal.name} el ${input.observed_date}. Próximo celo estimado: ${nextHeat}.`
 }
 
+const GESTATION_DAYS_CATTLE = 280
+const GESTATION_DAYS_PIG = 114
+const HEAT_CYCLE_DAYS = 21
+
+async function registerInsemination(input: {
+  animal_ear_tag: string; insemination_date: string
+  semen_source?: string; notes?: string
+}): Promise<string> {
+  const animal = await findAnimal(input.animal_ear_tag)
+  if (!animal) return `No encontré animal "${input.animal_ear_tag}".`
+  if (animal.sex !== 'female') return `${animal.ear_tag ?? animal.name} no es una hembra.`
+
+  const gestation = animal.species === 'cattle' ? GESTATION_DAYS_CATTLE : GESTATION_DAYS_PIG
+  const heatCheckDate = addDaysToDate(input.insemination_date, HEAT_CYCLE_DAYS)
+  const expectedBirth = addDaysToDate(input.insemination_date, gestation)
+
+  const { error } = await supabase.from('insemination_records').insert({
+    animal_id: animal.id,
+    insemination_date: input.insemination_date,
+    semen_source: input.semen_source ?? null,
+    expected_birth: expectedBirth,
+    heat_check_date: heatCheckDate,
+    pregnancy_confirmed: null,
+    pregnancy_confirmed_date: null,
+    notes: input.notes ?? null
+  })
+  if (error) return `Error: ${error.message}`
+
+  // Tarea recordatorio del chequeo de celo (igual que el flujo de la app)
+  const label = animal.ear_tag ?? animal.name
+  await supabase.from('tasks').insert({
+    title: `Revisar retorno de celo — ${label}`,
+    description: `Verificar si ${label} regresó al celo a los ${HEAT_CYCLE_DAYS} días de la inseminación (${input.insemination_date}). Si hay retorno, NO quedó preñada.`,
+    status: 'pending',
+    priority: 'high',
+    category: 'reproduction',
+    due_date: heatCheckDate,
+    animal_id: animal.id
+  })
+
+  return `✓ Inseminación registrada para ${label} el ${input.insemination_date}. Chequeo de retorno de celo: ${heatCheckDate}. Parto probable si queda preñada: ${expectedBirth}. Creé una tarea recordatorio para el día 21.`
+}
+
 async function updatePregnancy(input: {
   animal_ear_tag: string; is_pregnant: boolean
   service_date?: string; expected_birth?: string
@@ -1077,25 +1142,70 @@ async function updatePregnancy(input: {
   const animal = await findAnimal(input.animal_ear_tag)
   if (!animal) return `No encontré animal "${input.animal_ear_tag}".`
 
-  if (animal.species === 'cattle') {
-    const { error } = await supabase.from('cattle_details').update({
-      is_pregnant: input.is_pregnant,
-      conception_date: input.service_date ?? null,
-      expected_birth: input.expected_birth ?? null
-    }).eq('animal_id', animal.id)
-    if (error) return `Error: ${error.message}`
+  // Buscar la inseminación pendiente más reciente para vincularla
+  const { data: pendingRecs } = await supabase
+    .from('insemination_records')
+    .select('id, insemination_date, expected_birth')
+    .eq('animal_id', animal.id)
+    .is('pregnancy_confirmed', null)
+    .order('insemination_date', { ascending: false })
+    .limit(1)
+  const pending = pendingRecs?.[0] ?? null
+
+  const gestation = animal.species === 'cattle' ? GESTATION_DAYS_CATTLE : GESTATION_DAYS_PIG
+  const serviceDate = input.service_date ?? pending?.insemination_date ?? null
+  const expectedBirth = input.expected_birth
+    ?? pending?.expected_birth
+    ?? (serviceDate ? addDaysToDate(serviceDate, gestation) : null)
+
+  // Al confirmar preñez solo se sobreescriben fechas si hay valor;
+  // al descartar se limpian
+  const detailUpdate: Record<string, unknown> = { is_pregnant: input.is_pregnant }
+  const dateField = animal.species === 'cattle' ? 'conception_date' : 'service_date'
+  if (input.is_pregnant) {
+    if (serviceDate) detailUpdate[dateField] = serviceDate
+    if (expectedBirth) detailUpdate.expected_birth = expectedBirth
   } else {
-    const { error } = await supabase.from('pig_details').update({
-      is_pregnant: input.is_pregnant,
-      service_date: input.service_date ?? null,
-      expected_birth: input.expected_birth ?? null
-    }).eq('animal_id', animal.id)
-    if (error) return `Error: ${error.message}`
+    detailUpdate[dateField] = null
+    detailUpdate.expected_birth = null
+  }
+
+  const table = animal.species === 'cattle' ? 'cattle_details' : 'pig_details'
+  const { error } = await supabase.from(table).update(detailUpdate).eq('animal_id', animal.id)
+  if (error) return `Error: ${error.message}`
+
+  // Mantener el historial de inseminaciones sincronizado
+  let recordInfo = ''
+  if (input.is_pregnant) {
+    if (pending) {
+      await supabase.from('insemination_records').update({
+        pregnancy_confirmed: true,
+        pregnancy_confirmed_date: localToday()
+      }).eq('id', pending.id)
+      recordInfo = ' Inseminación pendiente marcada como confirmada.'
+    } else if (serviceDate) {
+      await supabase.from('insemination_records').insert({
+        animal_id: animal.id,
+        insemination_date: serviceDate,
+        expected_birth: expectedBirth,
+        heat_check_date: addDaysToDate(serviceDate, HEAT_CYCLE_DAYS),
+        pregnancy_confirmed: true,
+        pregnancy_confirmed_date: localToday(),
+        notes: 'Creado al confirmar preñez (asistente IA)'
+      })
+      recordInfo = ' Registro de inseminación creado y confirmado.'
+    }
+  } else if (pending) {
+    await supabase.from('insemination_records').update({
+      pregnancy_confirmed: false,
+      pregnancy_confirmed_date: null
+    }).eq('id', pending.id)
+    recordInfo = ' Inseminación pendiente marcada como fallida (retorno de celo).'
   }
 
   const estado = input.is_pregnant ? 'preñada' : 'no preñada'
-  const partoInfo = input.expected_birth ? ` — parto esperado: ${input.expected_birth}` : ''
-  return `✓ ${animal.ear_tag ?? animal.name} marcada como ${estado}${partoInfo}.`
+  const partoInfo = input.is_pregnant && expectedBirth ? ` — parto esperado: ${expectedBirth}` : ''
+  return `✓ ${animal.ear_tag ?? animal.name} marcada como ${estado}${partoInfo}.${recordInfo}`
 }
 
 async function createExpense(input: {
@@ -1195,6 +1305,7 @@ async function executeTool(name: string, input: Record<string, unknown>): Promis
       case 'register_milk_record':     return await registerMilkRecord(input as Parameters<typeof registerMilkRecord>[0])
       // Acciones porcinos
       case 'register_heat':            return await registerHeat(input as Parameters<typeof registerHeat>[0])
+      case 'register_insemination':    return await registerInsemination(input as Parameters<typeof registerInsemination>[0])
       case 'update_pregnancy':         return await updatePregnancy(input as Parameters<typeof updatePregnancy>[0])
       // Acciones gastos
       case 'create_expense':           return await createExpense(input as Parameters<typeof createExpense>[0])
