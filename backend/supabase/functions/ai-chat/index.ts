@@ -68,6 +68,11 @@ VACUNAS / MEDICAMENTOS
 - vaccination_records: aplicaciones por animal
 - vaccines: catálogo de vacunas
 - inventory_items: los productos se buscan aquí por nombre
+- RETIRO DE LECHE: si un medicamento tiene período de retiro (antibióticos,
+  antiparasitarios), pásalo en milk_withdrawal_days al aplicar — la leche de
+  ese animal NO se puede vender hasta que termine. Consulta los retiros
+  activos con get_milk_withdrawals. Si te preguntan si se puede vender la
+  leche, revisa primero los retiros.
 
 INVENTARIO
 - inventory_categories: categorías de productos

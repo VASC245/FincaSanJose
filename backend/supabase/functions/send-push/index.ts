@@ -6,7 +6,7 @@
 // Tipos de envío:
 //   { "kind": "daily" }   → 6:00 am: tareas vencidas/hoy/mañana,
 //                           partos próximos, retorno de celo,
-//                           stock bajo
+//                           stock bajo, retiros de leche
 //   { "kind": "evening" } → 6:00 pm: leche de hoy sin registrar,
 //                           gastos de hoy sin registrar, tareas
 //                           de hoy sin completar
@@ -84,8 +84,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (already) return json({ ok: true, message: `Ya se envió la notificación "${kind}" de hoy.` });
   }
 
+  const yesterday = bogotaDate(-1);
+
   // ── Recolectar datos (solo lo que aplica al tipo de envío) ──
-  const [tasksRes, birthsRes, stockRes, heatRes, milkRes, gastosRes] = await Promise.all([
+  const [tasksRes, birthsRes, stockRes, heatRes, milkRes, gastosRes, withdrawalsRes, withdrawalsEndedRes] = await Promise.all([
     supabase
       .from("tasks")
       .select("title, due_date, priority")
@@ -108,6 +110,18 @@ Deno.serve(async (req: Request): Promise<Response> => {
       : Promise.resolve({ data: [] }),
     isEvening
       ? supabase.from("gastos").select("id").eq("fecha", today).limit(1)
+      : Promise.resolve({ data: [] }),
+    isMorning
+      ? supabase
+          .from("vaccination_records")
+          .select("milk_withdrawal_until, animal:animals(ear_tag, name, species)")
+          .gte("milk_withdrawal_until", today)
+      : Promise.resolve({ data: [] }),
+    isMorning
+      ? supabase
+          .from("vaccination_records")
+          .select("milk_withdrawal_until, animal:animals(ear_tag, name, species)")
+          .eq("milk_withdrawal_until", yesterday)
       : Promise.resolve({ data: [] }),
   ]);
 
@@ -141,6 +155,18 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     const lowStock = (stockRes.data ?? []) as { item_name: string }[];
     if (lowStock.length) lines.push(`📦 Stock bajo: ${lowStock.slice(0, 3).map((i) => i.item_name).join(", ")}${lowStock.length > 3 ? "…" : ""}`);
+
+    // Retiro de leche: activos hoy (no vender) y terminados ayer (ya se puede)
+    type Withdrawal = { milk_withdrawal_until: string; animal: AnimalRef | null };
+    const activeWd = (withdrawalsRes.data ?? []) as Withdrawal[];
+    const uniqueActive = [...new Map(activeWd.map((w) => [animalLabel(w.animal), w])).values()];
+    if (uniqueActive.length) {
+      lines.push(`🚫🥛 NO vender leche de: ${uniqueActive.slice(0, 3).map((w) => `${animalLabel(w.animal)} (hasta ${w.milk_withdrawal_until})`).join(", ")}${uniqueActive.length > 3 ? "…" : ""}`);
+    }
+    const endedWd = (withdrawalsEndedRes.data ?? []) as Withdrawal[];
+    const stillActive = new Set(uniqueActive.map((w) => animalLabel(w.animal)));
+    const ended = [...new Set(endedWd.map((w) => animalLabel(w.animal)))].filter((a) => !stillActive.has(a));
+    if (ended.length) lines.push(`✅🥛 Retiro terminado — ya puedes vender la leche de: ${ended.join(", ")}`);
   }
 
   // ── Secciones de la tarde ────────────────────────────────

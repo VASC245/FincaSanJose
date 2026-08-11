@@ -3,6 +3,7 @@ import { onMounted, computed, ref } from 'vue'
 import { Beef, PiggyBank, HeartHandshake, ClipboardList, AlertTriangle, Milk, TrendingUp, TrendingDown, Scale } from 'lucide-vue-next'
 import StatCard from '@/components/shared/StatCard.vue'
 import StockAlert from '@/components/inventory/StockAlert.vue'
+import MilkWithdrawalAlert from '@/components/cattle/MilkWithdrawalAlert.vue'
 import TaskCard from '@/components/tasks/TaskCard.vue'
 import PregnancyBadge from '@/components/cattle/PregnancyBadge.vue'
 import { useAnimalsStore } from '@/stores/animals'
@@ -171,6 +172,9 @@ const pregnantCows = computed(() =>
 
       <!-- Right column -->
       <div class="space-y-4">
+        <!-- Leche en retiro -->
+        <MilkWithdrawalAlert />
+
         <!-- Stock alerts -->
         <StockAlert />
 

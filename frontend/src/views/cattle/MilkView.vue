@@ -4,6 +4,7 @@ import { localToday } from '@/lib/dates'
 import { Milk, ChevronDown, ChevronRight, Plus, Trash2 } from 'lucide-vue-next'
 import BaseButton from '@/components/shared/BaseButton.vue'
 import BaseInput from '@/components/shared/BaseInput.vue'
+import MilkWithdrawalAlert from '@/components/cattle/MilkWithdrawalAlert.vue'
 import { useAnimalsStore } from '@/stores/animals'
 import {
   fetchAllMilkRecords, createMilkRecord, deleteMilkRecord, groupByDate,
@@ -149,6 +150,9 @@ function maxLiters(sessions: MilkSession[]) {
         </h1>
       </div>
     </div>
+
+    <!-- Leche en retiro -->
+    <MilkWithdrawalAlert />
 
     <!-- Tabs -->
     <div class="flex gap-1 p-1 bg-gray-100 rounded-xl w-fit">

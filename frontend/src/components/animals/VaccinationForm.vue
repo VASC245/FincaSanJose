@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { reactive, ref, onMounted, computed } from 'vue'
-import { localToday } from '@/lib/dates'
+import { localToday, addDaysToDate, formatDate } from '@/lib/dates'
 import BaseModal from '@/components/shared/BaseModal.vue'
 import BaseInput from '@/components/shared/BaseInput.vue'
 import BaseButton from '@/components/shared/BaseButton.vue'
@@ -35,8 +35,15 @@ const form = reactive({
   next_date: '',
   applied_by: '',
   notes: '',
-  quantity_used: 1
+  quantity_used: 1,
+  milk_withdrawal_days: 0
 })
+
+const withdrawalUntil = computed(() =>
+  form.milk_withdrawal_days > 0
+    ? addDaysToDate(form.applied_date, form.milk_withdrawal_days)
+    : null
+)
 
 onMounted(async () => {
   items.value = await fetchItems()
@@ -53,7 +60,9 @@ async function handleSubmit() {
       applied_date: form.applied_date,
       next_date: form.next_date || null,
       applied_by: form.applied_by || null,
-      notes: form.notes || null
+      notes: form.notes || null,
+      milk_withdrawal_days: form.milk_withdrawal_days > 0 ? form.milk_withdrawal_days : null,
+      milk_withdrawal_until: withdrawalUntil.value
     })
     await createMovement({
       item_id: form.inventory_item_id,
@@ -70,6 +79,7 @@ async function handleSubmit() {
     form.applied_by = ''
     form.notes = ''
     form.quantity_used = 1
+    form.milk_withdrawal_days = 0
     search.value = ''
   } catch (e) {
     alert('Error al guardar: ' + (e as Error).message)
@@ -145,6 +155,23 @@ const selectedItem = computed(() =>
         step="0.01"
         required
       />
+
+      <!-- Retiro de leche (solo bovinos) -->
+      <div v-if="species === 'cattle'">
+        <BaseInput
+          v-model.number="form.milk_withdrawal_days"
+          label="Días de retiro de leche"
+          type="number"
+          :min="0"
+          placeholder="0 = sin retiro"
+        />
+        <p v-if="withdrawalUntil" class="mt-1 text-xs text-red-600 font-medium">
+          🚫🥛 No vender la leche de este animal hasta el {{ formatDate(withdrawalUntil) }}
+        </p>
+        <p v-else class="mt-1 text-xs text-gray-400">
+          Si el medicamento tiene retiro, la app te avisará hasta cuándo no vender la leche.
+        </p>
+      </div>
 
       <BaseInput
         v-model="form.applied_by"

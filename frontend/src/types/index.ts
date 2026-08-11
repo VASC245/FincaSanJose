@@ -85,6 +85,8 @@ export interface VaccinationRecord {
   next_date: string | null
   applied_by: string | null
   notes: string | null
+  milk_withdrawal_days: number | null
+  milk_withdrawal_until: string | null
   created_at: string
   // joined
   vaccine?: Vaccine

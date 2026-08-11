@@ -63,6 +63,7 @@ export const TOOL_LABELS: Record<string, string> = {
   get_milk_production:      'Consultando producción de leche...',
   get_heat_records:         'Consultando registros de celo...',
   get_vaccination_history:  'Consultando historial de vacunas...',
+  get_milk_withdrawals:     'Consultando retiros de leche...',
   // Acciones
   register_animal:          'Registrando animal...',
   update_animal_status:     'Actualizando estado del animal...',
@@ -323,7 +324,7 @@ const tools: Tool[] = [
   },
   {
     name: 'apply_single_vaccination',
-    description: 'Aplica una vacuna o medicamento a un animal específico. Descuenta del inventario automáticamente.',
+    description: 'Aplica una vacuna o medicamento a un animal específico. Descuenta del inventario automáticamente. Si el medicamento tiene período de retiro de leche (antibióticos, etc.), indica milk_withdrawal_days y la app avisará hasta cuándo NO vender la leche.',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -332,10 +333,16 @@ const tools: Tool[] = [
         quantity_used: { type: 'number' },
         applied_date: { type: 'string', description: 'Fecha YYYY-MM-DD' },
         next_date: { type: 'string', description: 'Próxima dosis YYYY-MM-DD (opcional)' },
+        milk_withdrawal_days: { type: 'number', description: 'Días de retiro de leche del medicamento (opcional, solo vacas en producción)' },
         notes: { type: 'string' }
       },
       required: ['animal_ear_tag', 'vaccine_name', 'quantity_used', 'applied_date']
     }
+  },
+  {
+    name: 'get_milk_withdrawals',
+    description: 'Lista los animales cuya leche NO se puede vender hoy por retiro de medicamento, con la fecha hasta la cual dura el retiro.',
+    input_schema: { type: 'object' as const, properties: {}, required: [] }
   },
   // ── Acciones: inventario ───────────────────────────────────────────────────
   {
@@ -835,7 +842,7 @@ async function getVaccinationHistory(input: { animal_ear_tag: string }): Promise
 
   const { data, error } = await supabase
     .from('vaccination_records')
-    .select('applied_date, next_date, applied_by, notes, inventory_item:inventory_items(name, unit)')
+    .select('applied_date, next_date, applied_by, notes, milk_withdrawal_days, milk_withdrawal_until, inventory_item:inventory_items(name, unit)')
     .eq('animal_id', animal.id)
     .order('applied_date', { ascending: false })
 
@@ -985,7 +992,8 @@ async function applyBatchVaccination(input: {
   await createBatchVaccinationRecords(piglets.map(p => p.id), {
     vaccine_id: null, inventory_item_id: item.id,
     applied_date: input.applied_date, next_date: null,
-    applied_by: null, notes: input.notes ?? null
+    applied_by: null, notes: input.notes ?? null,
+    milk_withdrawal_days: null, milk_withdrawal_until: null
   })
   await createMovement({
     item_id: item.id, type: 'out', quantity: totalQty,
@@ -998,7 +1006,7 @@ async function applyBatchVaccination(input: {
 
 async function applySingleVaccination(input: {
   animal_ear_tag: string; vaccine_name: string; quantity_used: number
-  applied_date: string; next_date?: string; notes?: string
+  applied_date: string; next_date?: string; milk_withdrawal_days?: number; notes?: string
 }): Promise<string> {
   const animal = await findAnimal(input.animal_ear_tag)
   if (!animal) return `No encontré animal "${input.animal_ear_tag}".`
@@ -1007,17 +1015,46 @@ async function applySingleVaccination(input: {
   if (!item) return `"${input.vaccine_name}" no está en el inventario.`
   if (item.quantity < input.quantity_used) return `Stock insuficiente: hay ${item.quantity} ${item.unit}.`
 
+  const withdrawalDays = input.milk_withdrawal_days && input.milk_withdrawal_days > 0
+    ? input.milk_withdrawal_days : null
+  const withdrawalUntil = withdrawalDays
+    ? addDaysToDate(input.applied_date, withdrawalDays) : null
+
   await createVaccinationRecord({
     animal_id: animal.id, vaccine_id: null, inventory_item_id: item.id,
     applied_date: input.applied_date, next_date: input.next_date ?? null,
-    applied_by: null, notes: input.notes ?? null
+    applied_by: null, notes: input.notes ?? null,
+    milk_withdrawal_days: withdrawalDays, milk_withdrawal_until: withdrawalUntil
   })
   await createMovement({
     item_id: item.id, type: 'out', quantity: input.quantity_used,
     date: input.applied_date, notes: `Vacunación: ${animal.ear_tag ?? animal.name}`
   })
 
-  return `✓ ${item.name} (${input.quantity_used} ${item.unit}) aplicada a ${animal.ear_tag ?? animal.name}. Inventario actualizado.`
+  const retiroInfo = withdrawalUntil
+    ? ` 🚫🥛 Retiro de leche: NO vender la leche de ${animal.ear_tag ?? animal.name} hasta el ${withdrawalUntil}.`
+    : ''
+  return `✓ ${item.name} (${input.quantity_used} ${item.unit}) aplicada a ${animal.ear_tag ?? animal.name}. Inventario actualizado.${retiroInfo}`
+}
+
+async function getMilkWithdrawals(): Promise<string> {
+  const { data, error } = await supabase
+    .from('vaccination_records')
+    .select('milk_withdrawal_until, applied_date, animal:animals(ear_tag, name), inventory_item:inventory_items(name)')
+    .gte('milk_withdrawal_until', today())
+    .order('milk_withdrawal_until', { ascending: true })
+  if (error) return `Error: ${error.message}`
+  if (!data?.length) return 'No hay animales con retiro de leche activo — toda la leche se puede vender.'
+  return JSON.stringify({
+    aviso: 'La leche de estos animales NO se puede vender hasta la fecha indicada',
+    retiros: data.map(r => ({
+      animal: (r.animal as { ear_tag: string | null; name: string | null } | null)?.ear_tag
+        ?? (r.animal as { name: string | null } | null)?.name,
+      producto: (r.inventory_item as { name: string } | null)?.name,
+      aplicado: r.applied_date,
+      no_vender_hasta: r.milk_withdrawal_until
+    }))
+  })
 }
 
 async function addInventoryStock(input: {
@@ -1357,6 +1394,7 @@ async function executeTool(name: string, input: Record<string, unknown>): Promis
       case 'get_milk_production':      return await getMilkProduction(input as Parameters<typeof getMilkProduction>[0])
       case 'get_heat_records':         return await getHeatRecords(input as Parameters<typeof getHeatRecords>[0])
       case 'get_vaccination_history':  return await getVaccinationHistory(input as Parameters<typeof getVaccinationHistory>[0])
+      case 'get_milk_withdrawals':     return await getMilkWithdrawals()
       // Acciones animales
       case 'register_animal':          return await registerAnimal(input as Parameters<typeof registerAnimal>[0])
       case 'update_animal_status':     return await updateAnimalStatus(input as Parameters<typeof updateAnimalStatus>[0])

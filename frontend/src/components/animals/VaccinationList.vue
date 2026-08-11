@@ -75,6 +75,9 @@ onMounted(load)
           <p v-if="r.next_date" class="text-xs text-gray-400">
             Próxima: {{ formatDate(r.next_date) }}
           </p>
+          <p v-if="r.milk_withdrawal_until" class="text-xs font-medium text-red-600">
+            🚫🥛 Retiro de leche hasta: {{ formatDate(r.milk_withdrawal_until) }}
+          </p>
         </div>
         <div class="flex items-center gap-2">
           <BaseBadge v-if="r.applied_by" variant="blue">{{ r.applied_by }}</BaseBadge>

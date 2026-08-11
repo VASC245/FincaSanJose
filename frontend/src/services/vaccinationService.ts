@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import { localToday } from '@/lib/dates'
 import type { Vaccine, VaccinationRecord, VaccinationFormData, Litter, LitterFormData, Animal } from '@/types'
 
 export interface LitterWithSow extends Litter {
@@ -73,6 +74,45 @@ export async function createBatchVaccinationRecords(
 export async function deleteVaccinationRecord(id: string): Promise<void> {
   const { error } = await supabase.from('vaccination_records').delete().eq('id', id)
   if (error) throw error
+}
+
+// ─── Retiro de leche ─────────────────────────────────────────────────────────
+
+export interface ActiveMilkWithdrawal {
+  animal_id: string
+  until: string
+  animal: Pick<Animal, 'id' | 'ear_tag' | 'name'> | null
+  item_name: string | null
+}
+
+/** Animales cuya leche NO se puede vender hoy (retiro activo), uno por animal. */
+export async function fetchActiveMilkWithdrawals(): Promise<ActiveMilkWithdrawal[]> {
+  const { data, error } = await supabase
+    .from('vaccination_records')
+    .select('animal_id, milk_withdrawal_until, animal:animals(id, ear_tag, name), inventory_item:inventory_items(name)')
+    .gte('milk_withdrawal_until', localToday())
+    .order('milk_withdrawal_until', { ascending: false })
+
+  if (error) throw error
+
+  const byAnimal = new Map<string, ActiveMilkWithdrawal>()
+  for (const r of (data ?? []) as unknown as {
+    animal_id: string
+    milk_withdrawal_until: string
+    animal: Pick<Animal, 'id' | 'ear_tag' | 'name'> | null
+    inventory_item: { name: string } | null
+  }[]) {
+    // ordenado descendente → el primero por animal es el retiro más largo
+    if (!byAnimal.has(r.animal_id)) {
+      byAnimal.set(r.animal_id, {
+        animal_id: r.animal_id,
+        until: r.milk_withdrawal_until,
+        animal: r.animal,
+        item_name: r.inventory_item?.name ?? null
+      })
+    }
+  }
+  return [...byAnimal.values()].sort((a, b) => a.until.localeCompare(b.until))
 }
 
 // ─── Litters (pig births) ─────────────────────────────────────────────────────
