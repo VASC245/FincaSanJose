@@ -226,6 +226,25 @@ export interface Gasto {
 
 export type GastoFormData = Omit<Gasto, 'id' | 'created_at'>
 
+// ─── Ventas ──────────────────────────────────────────────────────────────────
+
+export type VentaTipo = 'leche' | 'animal' | 'otro'
+
+export interface Venta {
+  id: string
+  fecha: string
+  tipo: VentaTipo
+  descripcion: string
+  monto: number
+  cantidad: number | null
+  unidad: string | null
+  comprador: string | null
+  animal_id: string | null
+  created_at: string
+}
+
+export type VentaFormData = Omit<Venta, 'id' | 'created_at'>
+
 // ─── Dashboard KPIs ──────────────────────────────────────────────────────────
 
 export interface DashboardStats {

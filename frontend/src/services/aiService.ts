@@ -58,6 +58,8 @@ export const TOOL_LABELS: Record<string, string> = {
   get_pending_tasks:        'Revisando tareas pendientes...',
   get_recent_expenses:      'Consultando gastos...',
   get_expense_stats:        'Calculando estadísticas de gastos...',
+  get_recent_sales:         'Consultando ventas...',
+  get_finance_summary:      'Calculando balance financiero...',
   get_milk_production:      'Consultando producción de leche...',
   get_heat_records:         'Consultando registros de celo...',
   get_vaccination_history:  'Consultando historial de vacunas...',
@@ -75,6 +77,7 @@ export const TOOL_LABELS: Record<string, string> = {
   register_insemination:    'Registrando inseminación...',
   update_pregnancy:         'Actualizando estado de preñez...',
   create_expense:           'Registrando gasto...',
+  create_sale:              'Registrando venta...',
   create_task:              'Creando tarea...',
   update_task:              'Actualizando tarea...',
   complete_task:            'Completando tarea...',
@@ -435,6 +438,49 @@ const tools: Tool[] = [
         fecha: { type: 'string', description: 'Fecha YYYY-MM-DD' }
       },
       required: ['monto', 'descripcion', 'categoria', 'fecha']
+    }
+  },
+  // ── Ventas ─────────────────────────────────────────────────────────────────
+  {
+    name: 'get_recent_sales',
+    description: 'Lista las ventas (ingresos) recientes de la finca: leche, animales u otros.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        days: { type: 'number', description: 'Días hacia atrás (default 30)' }
+      },
+      required: []
+    }
+  },
+  {
+    name: 'get_finance_summary',
+    description: 'Balance financiero: total de ingresos (ventas), total de gastos y ganancia/pérdida neta en un período.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        days: { type: 'number', description: 'Días hacia atrás (default 30)' },
+        year_month: { type: 'string', description: 'Mes específico YYYY-MM (opcional, reemplaza days)' }
+      },
+      required: []
+    }
+  },
+  {
+    name: 'create_sale',
+    description: 'Registra una venta (ingreso) de la finca: leche, un animal u otro. Si es venta de un animal, se puede indicar el arete/nombre para vincularlo y marcarlo como vendido.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        monto: { type: 'number', description: 'Monto total en pesos colombianos' },
+        descripcion: { type: 'string' },
+        tipo: { type: 'string', enum: ['leche', 'animal', 'otro'] },
+        fecha: { type: 'string', description: 'Fecha YYYY-MM-DD' },
+        cantidad: { type: 'number', description: 'Cantidad vendida, ej. litros (opcional)' },
+        unidad: { type: 'string', description: 'Unidad de la cantidad, ej. litros, kg (opcional)' },
+        comprador: { type: 'string', description: 'Nombre del comprador (opcional)' },
+        animal_ear_tag: { type: 'string', description: 'Arete o nombre del animal vendido (solo tipo=animal)' },
+        mark_animal_sold: { type: 'boolean', description: 'Marcar el animal como vendido (default true si se indica animal)' }
+      },
+      required: ['monto', 'descripcion', 'tipo', 'fecha']
     }
   },
   // ── Acciones: tareas ───────────────────────────────────────────────────────
@@ -1156,6 +1202,91 @@ async function createExpense(input: {
   return `✓ Gasto registrado: ${input.descripcion} — ${fmt}`
 }
 
+async function getRecentSales(input: { days?: number }): Promise<string> {
+  const days = input.days ?? 30
+  const since = localDateOffset(-days)
+  const { data, error } = await supabase
+    .from('ventas').select('fecha, monto, tipo, descripcion, cantidad, unidad, comprador')
+    .gte('fecha', since).order('fecha', { ascending: false })
+  if (error) return `Error: ${error.message}`
+  const total = (data ?? []).reduce((s, v) => s + Number(v.monto), 0)
+  return JSON.stringify({ ventas: data ?? [], total_COP: total, periodo_dias: days })
+}
+
+async function getFinanceSummary(input: { days?: number; year_month?: string }): Promise<string> {
+  let since: string
+  let until: string | undefined
+
+  if (input.year_month) {
+    since = input.year_month + '-01'
+    const [y, m] = input.year_month.split('-').map(Number)
+    const lastDay = new Date(y, m, 0).getDate()
+    until = `${input.year_month}-${String(lastDay).padStart(2, '0')}`
+  } else {
+    const days = input.days ?? 30
+    since = localDateOffset(-days)
+  }
+
+  let ventasQ = supabase.from('ventas').select('monto, tipo').gte('fecha', since)
+  let gastosQ = supabase.from('gastos').select('monto').gte('fecha', since)
+  if (until) {
+    ventasQ = ventasQ.lte('fecha', until)
+    gastosQ = gastosQ.lte('fecha', until)
+  }
+
+  const [ventasRes, gastosRes] = await Promise.all([ventasQ, gastosQ])
+  if (ventasRes.error) return `Error: ${ventasRes.error.message}`
+  if (gastosRes.error) return `Error: ${gastosRes.error.message}`
+
+  const porTipo: Record<string, number> = {}
+  let ingresos = 0
+  for (const v of ventasRes.data ?? []) {
+    ingresos += Number(v.monto)
+    porTipo[v.tipo] = (porTipo[v.tipo] ?? 0) + Number(v.monto)
+  }
+  const gastos = (gastosRes.data ?? []).reduce((s, g) => s + Number(g.monto), 0)
+
+  return JSON.stringify({
+    periodo: input.year_month ?? `últimos ${input.days ?? 30} días`,
+    ingresos_COP: ingresos,
+    ingresos_por_tipo: porTipo,
+    gastos_COP: gastos,
+    balance_COP: ingresos - gastos
+  })
+}
+
+async function createSale(input: {
+  monto: number; descripcion: string; tipo: string; fecha: string
+  cantidad?: number; unidad?: string; comprador?: string
+  animal_ear_tag?: string; mark_animal_sold?: boolean
+}): Promise<string> {
+  let animalId: string | null = null
+  let animalInfo = ''
+
+  if (input.tipo === 'animal' && input.animal_ear_tag) {
+    const animal = await findAnimal(input.animal_ear_tag)
+    if (!animal) return `No encontré animal con "${input.animal_ear_tag}".`
+    animalId = animal.id
+    if (input.mark_animal_sold !== false) {
+      const { error: statusError } = await supabase
+        .from('animals').update({ status: 'sold' }).eq('id', animal.id)
+      if (statusError) return `Error: ${statusError.message}`
+      animalInfo = ` — ${animal.ear_tag ?? animal.name} marcado como vendido`
+    } else {
+      animalInfo = ` — animal: ${animal.ear_tag ?? animal.name}`
+    }
+  }
+
+  const { error } = await supabase.from('ventas').insert({
+    monto: input.monto, descripcion: input.descripcion, tipo: input.tipo,
+    fecha: input.fecha, cantidad: input.cantidad ?? null, unidad: input.unidad ?? null,
+    comprador: input.comprador ?? null, animal_id: animalId
+  })
+  if (error) return `Error: ${error.message}`
+  const fmt = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(input.monto)
+  return `✓ Venta registrada: ${input.descripcion} — ${fmt}${animalInfo}`
+}
+
 async function createTaskFn(input: {
   title: string; description?: string; priority: string; category: string; due_date?: string
 }): Promise<string> {
@@ -1245,6 +1376,10 @@ async function executeTool(name: string, input: Record<string, unknown>): Promis
       case 'update_pregnancy':         return await updatePregnancy(input as Parameters<typeof updatePregnancy>[0])
       // Acciones gastos
       case 'create_expense':           return await createExpense(input as Parameters<typeof createExpense>[0])
+      // Ventas
+      case 'get_recent_sales':         return await getRecentSales(input as Parameters<typeof getRecentSales>[0])
+      case 'get_finance_summary':      return await getFinanceSummary(input as Parameters<typeof getFinanceSummary>[0])
+      case 'create_sale':              return await createSale(input as Parameters<typeof createSale>[0])
       // Acciones tareas
       case 'create_task':              return await createTaskFn(input as Parameters<typeof createTaskFn>[0])
       case 'update_task':              return await updateTaskFn(input as Parameters<typeof updateTaskFn>[0])

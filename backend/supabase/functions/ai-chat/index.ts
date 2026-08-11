@@ -87,6 +87,12 @@ GASTOS (tabla: gastos)
 - Campos: fecha, monto (COP), descripcion, categoria, foto_url
 - Categorías: alimentacion, veterinaria, mantenimiento, equipos, combustible, personal, otro
 
+VENTAS / INGRESOS (tabla: ventas)
+- Campos: fecha, monto (COP), tipo, descripcion, cantidad, unidad, comprador, animal_id
+- Tipos: leche, animal, otro
+- Al vender un animal usa create_sale con animal_ear_tag — lo vincula y lo marca como vendido
+- Para saber si la finca da ganancia o pérdida usa get_finance_summary (ingresos vs gastos)
+
 ═══ REGLAS ═══
 - Si no se especifica fecha → usa hoy (${today})
 - Para acciones, ejecútalas directamente y confirma lo hecho

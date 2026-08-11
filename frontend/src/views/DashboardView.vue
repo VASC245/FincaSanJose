@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, computed, ref } from 'vue'
-import { Beef, PiggyBank, HeartHandshake, ClipboardList, AlertTriangle, Milk } from 'lucide-vue-next'
+import { Beef, PiggyBank, HeartHandshake, ClipboardList, AlertTriangle, Milk, TrendingUp, TrendingDown, Scale } from 'lucide-vue-next'
 import StatCard from '@/components/shared/StatCard.vue'
 import StockAlert from '@/components/inventory/StockAlert.vue'
 import TaskCard from '@/components/tasks/TaskCard.vue'
@@ -8,11 +8,16 @@ import PregnancyBadge from '@/components/cattle/PregnancyBadge.vue'
 import { useAnimalsStore } from '@/stores/animals'
 import { useTasksStore } from '@/stores/tasks'
 import { useInventoryStore } from '@/stores/inventory'
+import { useGastosStore } from '@/stores/gastos'
+import { useVentasStore } from '@/stores/ventas'
 import { fetchMilkSessions } from '@/services/milkService'
+import { localToday } from '@/lib/dates'
 
 const animalsStore = useAnimalsStore()
 const tasksStore = useTasksStore()
 const inventoryStore = useInventoryStore()
+const gastosStore = useGastosStore()
+const ventasStore = useVentasStore()
 
 const totalMilkLiters = ref(0)
 const totalMilkDisplay = computed(() =>
@@ -25,11 +30,34 @@ onMounted(async () => {
   await Promise.all([
     animalsStore.loadAnimals(),
     tasksStore.loadTasks(),
-    inventoryStore.loadItems()
+    inventoryStore.loadItems(),
+    gastosStore.loadGastos(),
+    ventasStore.loadVentas()
   ])
   const sessions = await fetchMilkSessions()
   totalMilkLiters.value = sessions.reduce((sum, s) => sum + Number(s.liters), 0)
 })
+
+// ─── Finanzas del mes ────────────────────────────────────────────────────────
+const mesActual = localToday().slice(0, 7)
+
+const ingresosMes = computed(() =>
+  ventasStore.ventas
+    .filter((v) => v.fecha.startsWith(mesActual))
+    .reduce((sum, v) => sum + Number(v.monto), 0)
+)
+
+const gastosMes = computed(() =>
+  gastosStore.gastos
+    .filter((g) => g.fecha.startsWith(mesActual))
+    .reduce((sum, g) => sum + Number(g.monto), 0)
+)
+
+const balanceMes = computed(() => ingresosMes.value - gastosMes.value)
+
+function fmtCop(n: number) {
+  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n)
+}
 
 const recentPendingTasks = computed(() =>
   tasksStore.pending.slice(0, 5)
@@ -82,6 +110,31 @@ const pregnantCows = computed(() =>
         :icon="Milk"
         color="blue"
         subtitle="total registrado"
+      />
+    </div>
+
+    <!-- Finanzas del mes -->
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <StatCard
+        title="Ingresos del mes"
+        :value="fmtCop(ingresosMes)"
+        :icon="TrendingUp"
+        color="green"
+        subtitle="ventas"
+      />
+      <StatCard
+        title="Gastos del mes"
+        :value="fmtCop(gastosMes)"
+        :icon="TrendingDown"
+        color="red"
+        subtitle="egresos"
+      />
+      <StatCard
+        title="Balance del mes"
+        :value="fmtCop(balanceMes)"
+        :icon="Scale"
+        :color="balanceMes >= 0 ? 'green' : 'red'"
+        :subtitle="balanceMes >= 0 ? 'ganancia' : 'pérdida'"
       />
     </div>
 
