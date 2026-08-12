@@ -15,7 +15,8 @@ import {
   HandCoins,
   CalendarCheck,
   HeartHandshake,
-  Scale
+  Scale,
+  Target
 } from 'lucide-vue-next'
 
 defineProps<{ open: boolean }>()
@@ -32,6 +33,7 @@ const navItems = [
   { to: '/pigs/litters', label: 'Camadas', icon: Baby },
   { to: '/pigs/engorde', label: 'Engorde', icon: Scale },
   { to: '/reproduccion', label: 'Reproducción', icon: HeartHandshake },
+  { to: '/metas', label: 'Metas', icon: Target },
   { to: '/inventory', label: 'Inventario', icon: Package },
   { to: '/tasks', label: 'Tareas', icon: ClipboardList },
   { to: '/gastos', label: 'Gastos', icon: Receipt },
