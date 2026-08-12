@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, computed, ref } from 'vue'
-import { Beef, PiggyBank, HeartHandshake, ClipboardList, AlertTriangle, Milk, TrendingUp, TrendingDown, Scale } from 'lucide-vue-next'
+import { Beef, PiggyBank, HeartHandshake, ClipboardList, AlertTriangle, Milk, TrendingUp, TrendingDown, Scale, CalendarCheck } from 'lucide-vue-next'
 import StatCard from '@/components/shared/StatCard.vue'
 import StockAlert from '@/components/inventory/StockAlert.vue'
 import MilkWithdrawalAlert from '@/components/cattle/MilkWithdrawalAlert.vue'
@@ -204,6 +204,12 @@ const pregnantCows = computed(() =>
         <!-- Quick links -->
         <div class="card space-y-2">
           <h2 class="text-sm font-semibold text-gray-700 mb-2">Accesos rápidos</h2>
+          <RouterLink
+            to="/trabajo"
+            class="flex items-center gap-2 text-sm text-gray-600 hover:text-primary-600 py-1"
+          >
+            <CalendarCheck class="w-4 h-4" /> Qué toca hoy
+          </RouterLink>
           <RouterLink
             to="/cattle/new"
             class="flex items-center gap-2 text-sm text-gray-600 hover:text-primary-600 py-1"

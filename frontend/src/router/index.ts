@@ -13,6 +13,13 @@ const router = createRouter({
           component: () => import('@/views/DashboardView.vue'),
           meta: { title: 'Dashboard' }
         },
+        // Trabajo del día
+        {
+          path: 'trabajo',
+          name: 'trabajo',
+          component: () => import('@/views/trabajo/TrabajoView.vue'),
+          meta: { title: 'Qué toca hoy' }
+        },
         // Cattle
         {
           path: 'cattle',
