@@ -64,7 +64,9 @@ export const TOOL_LABELS: Record<string, string> = {
   get_heat_records:         'Consultando registros de celo...',
   get_vaccination_history:  'Consultando historial de vacunas...',
   get_milk_withdrawals:     'Consultando retiros de leche...',
+  get_weights:              'Consultando pesos y ganancia diaria...',
   // Acciones
+  register_weight:          'Registrando pesaje...',
   register_animal:          'Registrando animal...',
   update_animal_status:     'Actualizando estado del animal...',
   register_cattle_birth:    'Registrando parto bovino...',
@@ -343,6 +345,31 @@ const tools: Tool[] = [
     name: 'get_milk_withdrawals',
     description: 'Lista los animales cuya leche NO se puede vender hoy por retiro de medicamento, con la fecha hasta la cual dura el retiro.',
     input_schema: { type: 'object' as const, properties: {}, required: [] }
+  },
+  {
+    name: 'get_weights',
+    description: 'Consulta los pesos registrados y la ganancia diaria de peso (ADG) de un animal, o el resumen de engorde de todos los cerdos si no se indica animal.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        ear_tag: { type: 'string', description: 'Arete o nombre del animal (opcional; sin él muestra el resumen de engorde)' }
+      },
+      required: []
+    }
+  },
+  {
+    name: 'register_weight',
+    description: 'Registra un pesaje de un animal en kilogramos, para seguimiento de ganancia diaria (ADG) en engorde.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        ear_tag: { type: 'string', description: 'Arete o nombre del animal' },
+        weight_kg: { type: 'number', description: 'Peso en kilogramos' },
+        date: { type: 'string', description: 'Fecha YYYY-MM-DD (opcional, por defecto hoy)' },
+        notes: { type: 'string', description: 'Notas (opcional)' }
+      },
+      required: ['ear_tag', 'weight_kg']
+    }
   },
   // ── Acciones: inventario ───────────────────────────────────────────────────
   {
@@ -910,6 +937,17 @@ async function registerCattleBirth(input: {
   if (!cow) return `No encontré vaca "${input.cow_ear_tag}".`
   if (cow.species !== 'cattle') return `${cow.ear_tag ?? cow.name} no es un bovino.`
 
+  // Padre de la cría: el toro anotado en la pajuela de la inseminación
+  // que produjo esta preñez (la confirmada, o la más reciente)
+  const { data: insems } = await supabase
+    .from('insemination_records')
+    .select('semen_source, pregnancy_confirmed, insemination_date')
+    .eq('animal_id', cow.id)
+    .order('insemination_date', { ascending: false })
+    .limit(5)
+  const sire = (insems ?? []).find((r) => r.pregnancy_confirmed === true) ?? (insems ?? [])[0]
+  const fatherName = sire?.semen_source ?? null
+
   // Create calf animal
   const { data: calfData, error: calfError } = await supabase.from('animals').insert({
     ear_tag: input.calf_ear_tag ?? null,
@@ -919,6 +957,7 @@ async function registerCattleBirth(input: {
     birth_date: input.birth_date,
     stage: 'calf',
     mother_id: cow.id,
+    father_name: fatherName,
     status: 'active',
     notes: input.notes ?? null
   }).select().single()
@@ -943,7 +982,8 @@ async function registerCattleBirth(input: {
   const newCount = (cowDetail as { birth_count: number } | null)?.birth_count ?? 1
 
   const terneroLabel = input.calf_ear_tag ? `arete ${input.calf_ear_tag}` : (input.calf_name ?? 'sin identificar')
-  return `✓ Parto registrado: ${cow.ear_tag ?? cow.name} parió un ternero ${input.calf_sex === 'male' ? 'macho' : 'hembra'} (${terneroLabel}) el ${input.birth_date}. Parto #${newCount}. Estado de preñez actualizado a no preñada.`
+  const padreInfo = fatherName ? ` Padres: madre ${cow.ear_tag ?? cow.name}, padre ${fatherName} (pajuela).` : ` Madre: ${cow.ear_tag ?? cow.name}.`
+  return `✓ Parto registrado: ${cow.ear_tag ?? cow.name} parió un ternero ${input.calf_sex === 'male' ? 'macho' : 'hembra'} (${terneroLabel}) el ${input.birth_date}. Parto #${newCount}.${padreInfo} Estado de preñez actualizado a no preñada.`
 }
 
 async function registerLitter(input: {
@@ -1055,6 +1095,74 @@ async function getMilkWithdrawals(): Promise<string> {
       no_vender_hasta: r.milk_withdrawal_until
     }))
   })
+}
+
+async function getWeights(input: { ear_tag?: string }): Promise<string> {
+  if (input.ear_tag) {
+    const animal = await findAnimal(input.ear_tag)
+    if (!animal) return `No encontré animal "${input.ear_tag}".`
+    const { data } = await supabase
+      .from('weight_records')
+      .select('recorded_date, weight_kg, notes')
+      .eq('animal_id', animal.id)
+      .order('recorded_date', { ascending: true })
+    const records = (data ?? []) as { recorded_date: string; weight_kg: number; notes: string | null }[]
+    if (!records.length) return `${animal.ear_tag ?? animal.name} no tiene pesajes registrados.`
+    const lines = records.map((r) => `- ${r.recorded_date}: ${Number(r.weight_kg).toFixed(1)} kg${r.notes ? ` (${r.notes})` : ''}`)
+    let resumen = ''
+    if (records.length >= 2) {
+      const first = records[0], last = records[records.length - 1]
+      const days = Math.round((new Date(`${last.recorded_date}T12:00:00`).getTime() - new Date(`${first.recorded_date}T12:00:00`).getTime()) / 86_400_000)
+      const gain = Number(last.weight_kg) - Number(first.weight_kg)
+      const adg = days > 0 ? Math.round((gain / days) * 1000) : null
+      resumen = `\nGanancia total: ${gain.toFixed(1)} kg en ${days} días${adg != null ? ` → ADG ${adg} g/día` : ''}.`
+    }
+    return `Pesos de ${animal.ear_tag ?? animal.name}:\n${lines.join('\n')}${resumen}`
+  }
+
+  // Resumen de engorde: todos los cerdos activos con pesajes
+  const [{ data: pigs }, { data: weights }] = await Promise.all([
+    supabase.from('animals').select('id, ear_tag, name, stage').eq('species', 'pig').eq('status', 'active'),
+    supabase.from('weight_records').select('animal_id, recorded_date, weight_kg').order('recorded_date', { ascending: true })
+  ])
+  const byAnimal = new Map<string, { recorded_date: string; weight_kg: number }[]>()
+  for (const w of (weights ?? []) as { animal_id: string; recorded_date: string; weight_kg: number }[]) {
+    const arr = byAnimal.get(w.animal_id) ?? []
+    arr.push(w)
+    byAnimal.set(w.animal_id, arr)
+  }
+  const lines: string[] = []
+  for (const p of (pigs ?? []) as { id: string; ear_tag: string | null; name: string | null; stage: string | null }[]) {
+    const recs = byAnimal.get(p.id)
+    if (!recs?.length) continue
+    const last = recs[recs.length - 1]
+    let extra = ''
+    if (recs.length >= 2) {
+      const first = recs[0]
+      const days = Math.round((new Date(`${last.recorded_date}T12:00:00`).getTime() - new Date(`${first.recorded_date}T12:00:00`).getTime()) / 86_400_000)
+      const gain = Number(last.weight_kg) - Number(first.weight_kg)
+      if (days > 0) extra = ` — ADG ${Math.round((gain / days) * 1000)} g/día (${gain.toFixed(1)} kg en ${days} d)`
+    }
+    lines.push(`- ${p.ear_tag ?? p.name ?? 'Sin arete'}${p.stage ? ` [${p.stage}]` : ''}: ${Number(last.weight_kg).toFixed(1)} kg${extra}`)
+  }
+  if (!lines.length) return 'No hay pesajes registrados en cerdos.'
+  return `Resumen de engorde (${lines.length} cerdo(s) con pesajes):\n${lines.join('\n')}`
+}
+
+async function registerWeight(input: {
+  ear_tag: string; weight_kg: number; date?: string; notes?: string
+}): Promise<string> {
+  const animal = await findAnimal(input.ear_tag)
+  if (!animal) return `No encontré animal "${input.ear_tag}".`
+  const fecha = input.date ?? localToday()
+  const { error } = await supabase.from('weight_records').insert({
+    animal_id: animal.id,
+    recorded_date: fecha,
+    weight_kg: input.weight_kg,
+    notes: input.notes ?? null
+  })
+  if (error) return `Error al registrar pesaje: ${error.message}`
+  return `✓ Pesaje registrado: ${animal.ear_tag ?? animal.name} pesó ${input.weight_kg} kg el ${fecha}.`
 }
 
 async function addInventoryStock(input: {
@@ -1395,6 +1503,8 @@ async function executeTool(name: string, input: Record<string, unknown>): Promis
       case 'get_heat_records':         return await getHeatRecords(input as Parameters<typeof getHeatRecords>[0])
       case 'get_vaccination_history':  return await getVaccinationHistory(input as Parameters<typeof getVaccinationHistory>[0])
       case 'get_milk_withdrawals':     return await getMilkWithdrawals()
+      case 'get_weights':              return await getWeights(input as Parameters<typeof getWeights>[0])
+      case 'register_weight':          return await registerWeight(input as Parameters<typeof registerWeight>[0])
       // Acciones animales
       case 'register_animal':          return await registerAnimal(input as Parameters<typeof registerAnimal>[0])
       case 'update_animal_status':     return await updateAnimalStatus(input as Parameters<typeof updateAnimalStatus>[0])

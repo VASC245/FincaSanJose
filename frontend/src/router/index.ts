@@ -72,6 +72,12 @@ const router = createRouter({
           meta: { title: 'Nuevo Porcino' }
         },
         {
+          path: 'pigs/engorde',
+          name: 'engorde',
+          component: () => import('@/views/pigs/EngordeView.vue'),
+          meta: { title: 'Engorde' }
+        },
+        {
           path: 'pigs/litters',
           name: 'litters',
           component: () => import('@/views/pigs/LittersView.vue'),

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed, reactive, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { ArrowLeft, Pencil, Trash2, Plus, Heart, Baby } from 'lucide-vue-next'
+import { ArrowLeft, Pencil, Trash2, Plus, Heart, Baby, Scale } from 'lucide-vue-next'
 import BaseBadge from '@/components/shared/BaseBadge.vue'
 import BaseButton from '@/components/shared/BaseButton.vue'
 import BaseInput from '@/components/shared/BaseInput.vue'
@@ -24,7 +24,14 @@ import {
   deleteInseminationRecord,
   type InseminationRecord
 } from '@/services/inseminationService'
-import type { Animal, HeatRecord } from '@/types'
+import {
+  fetchWeightRecords,
+  createWeightRecord,
+  deleteWeightRecord,
+  computeAdg,
+  gainPerRecord
+} from '@/services/weightService'
+import type { Animal, HeatRecord, WeightRecord } from '@/types'
 
 const route = useRoute()
 const router = useRouter()
@@ -188,6 +195,13 @@ const heatForm = reactive({
 onMounted(async () => {
   animal.value = (await animalsStore.getAnimal(route.params.id as string)) ?? null
   loading.value = false
+  if (animal.value) {
+    weightLoading.value = true
+    fetchWeightRecords(animal.value.id)
+      .then(r => { weightRecords.value = r })
+      .catch(() => {})
+      .finally(() => { weightLoading.value = false })
+  }
   if (animal.value?.species === 'pig' && animal.value.sex === 'female') {
     heatLoading.value = true
     inseminHistLoading.value = true
@@ -239,6 +253,49 @@ async function removeHeat(id: string) {
   if (!confirm('¿Eliminar este registro?')) return
   await deleteHeatRecord(id)
   heatRecords.value = heatRecords.value.filter(r => r.id !== id)
+}
+
+// ─── Pesos / ganancia diaria (ADG) ───────────────────────────────────────────
+
+const weightRecords = ref<WeightRecord[]>([])
+const weightLoading = ref(false)
+const showWeightForm = ref(false)
+const weightForm = reactive({
+  recorded_date: localToday(),
+  weight_kg: '' as string | number,
+  notes: '',
+  saving: false
+})
+
+const adgSummary = computed(() => computeAdg(weightRecords.value))
+const recordGains = computed(() => gainPerRecord(weightRecords.value))
+const weightsDesc = computed(() =>
+  [...weightRecords.value].sort((a, b) => b.recorded_date.localeCompare(a.recorded_date))
+)
+
+async function submitWeight() {
+  if (!animal.value || !weightForm.recorded_date || weightForm.weight_kg === '') return
+  weightForm.saving = true
+  try {
+    const record = await createWeightRecord({
+      animal_id: animal.value.id,
+      recorded_date: weightForm.recorded_date,
+      weight_kg: Number(weightForm.weight_kg),
+      notes: weightForm.notes || null
+    })
+    weightRecords.value = [...weightRecords.value, record]
+    showWeightForm.value = false
+    weightForm.recorded_date = localToday()
+    weightForm.weight_kg = ''
+    weightForm.notes = ''
+  } catch (e) { alert('Error: ' + (e as Error).message) }
+  finally { weightForm.saving = false }
+}
+
+async function removeWeight(id: string) {
+  if (!confirm('¿Eliminar este pesaje?')) return
+  await deleteWeightRecord(id)
+  weightRecords.value = weightRecords.value.filter(r => r.id !== id)
 }
 
 function daysLabel(days: number): string {
@@ -628,6 +685,94 @@ function daysLabel(days: number): string {
               </div>
             </div>
           </div>
+        </div>
+      </div>
+
+      <!-- Pesos y ganancia diaria -->
+      <div class="card space-y-4">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2 flex-wrap">
+            <h3 class="text-sm font-semibold text-gray-700 flex items-center gap-2">
+              <Scale class="w-4 h-4 text-orange-500" /> Pesos y ganancia diaria
+            </h3>
+            <span
+              v-if="adgSummary?.adg != null"
+              class="text-xs font-semibold rounded-full px-2 py-0.5 border"
+              :class="adgSummary.adg >= 0.6
+                ? 'bg-green-50 text-green-700 border-green-100'
+                : adgSummary.adg >= 0.4
+                  ? 'bg-amber-50 text-amber-700 border-amber-100'
+                  : 'bg-red-50 text-red-600 border-red-100'"
+            >
+              {{ (adgSummary.adg * 1000).toFixed(0) }} g/día
+            </span>
+          </div>
+          <BaseButton size="sm" @click="showWeightForm = !showWeightForm">
+            <Plus class="w-4 h-4" /> Pesaje
+          </BaseButton>
+        </div>
+
+        <div v-if="adgSummary" class="grid grid-cols-3 gap-2">
+          <div class="rounded-lg bg-orange-50 border border-orange-100 px-3 py-2">
+            <p class="text-xs font-semibold text-orange-600">Peso actual</p>
+            <p class="text-sm font-bold text-orange-900">{{ adgSummary.lastWeight }} kg</p>
+          </div>
+          <div class="rounded-lg bg-orange-50 border border-orange-100 px-3 py-2">
+            <p class="text-xs font-semibold text-orange-600">Ganancia total</p>
+            <p class="text-sm font-bold text-orange-900">
+              {{ adgSummary.totalGain >= 0 ? '+' : '' }}{{ adgSummary.totalGain }} kg
+            </p>
+          </div>
+          <div class="rounded-lg bg-orange-50 border border-orange-100 px-3 py-2">
+            <p class="text-xs font-semibold text-orange-600">Período</p>
+            <p class="text-sm font-bold text-orange-900">{{ adgSummary.days }} días</p>
+          </div>
+        </div>
+
+        <div v-if="showWeightForm" class="rounded-xl border border-orange-100 bg-orange-50 p-4 space-y-3">
+          <div class="grid grid-cols-2 gap-3">
+            <BaseInput v-model="weightForm.recorded_date" label="Fecha" type="date" required />
+            <BaseInput v-model="weightForm.weight_kg" label="Peso (kg)" type="number" placeholder="0.0" required />
+          </div>
+          <BaseInput v-model="weightForm.notes" label="Notas (opcional)" placeholder="ej. cambio de concentrado" />
+          <div class="flex justify-end gap-2">
+            <BaseButton variant="secondary" size="sm" @click="showWeightForm = false">Cancelar</BaseButton>
+            <BaseButton size="sm" :loading="weightForm.saving" @click="submitWeight">Guardar</BaseButton>
+          </div>
+        </div>
+
+        <div v-if="weightLoading" class="text-center py-4 text-sm text-gray-400">Cargando pesos...</div>
+        <p v-else-if="!weightRecords.length" class="text-center py-3 text-sm text-gray-400">
+          Sin pesajes. Registra al menos dos para calcular la ganancia diaria.
+        </p>
+        <div v-else class="rounded-lg border border-gray-200 overflow-hidden">
+          <table class="w-full text-sm">
+            <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wide">
+              <tr>
+                <th class="px-3 py-2 text-left">Fecha</th>
+                <th class="px-3 py-2 text-right">Peso</th>
+                <th class="px-3 py-2 text-right">Ganancia/día</th>
+                <th class="px-3 py-2"></th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100 bg-white">
+              <tr v-for="r in weightsDesc" :key="r.id">
+                <td class="px-3 py-2 text-gray-700">{{ formatDate(r.recorded_date) }}</td>
+                <td class="px-3 py-2 text-right font-semibold text-orange-700">{{ Number(r.weight_kg).toFixed(1) }} kg</td>
+                <td class="px-3 py-2 text-right text-gray-600">
+                  <template v-if="recordGains.get(r.id) != null">
+                    {{ ((recordGains.get(r.id) as number) * 1000).toFixed(0) }} g/día
+                  </template>
+                  <template v-else>—</template>
+                </td>
+                <td class="px-3 py-2">
+                  <div class="flex justify-end">
+                    <button class="p-1 text-gray-300 hover:text-red-500 rounded transition-colors" @click="removeWeight(r.id)">✕</button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
 

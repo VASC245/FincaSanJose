@@ -47,6 +47,16 @@ ANIMALES (tabla: animals)
 - Estados: active, sold, deceased, culled
 - Etapas bovinos: calf, heifer, cow, bull, steer
 - Etapas porcinos: piglet, gilt, sow, boar, fattening
+- GENEALOGÍA: mother_id/father_id (padres registrados) y mother_name/father_name
+  (texto libre, ej. el toro de la pajuela). Al registrar un parto con
+  register_cattle_birth el ternero queda automáticamente con su madre y con el
+  padre tomado del semen_source de la inseminación que produjo la preñez.
+
+PESOS / ENGORDE (tabla: weight_records)
+- Campos: animal_id, recorded_date, weight_kg, notes
+- register_weight registra un pesaje; get_weights consulta pesos y ganancia
+  diaria de peso (ADG). Meta en engorde: 600–900 g/día. La vista Engorde de la
+  app muestra además el costo de alimento por kg ganado.
 
 BOVINOS (tabla: cattle_details)
 - Preñez: is_pregnant, conception_date, expected_birth, last_birth_date, birth_count

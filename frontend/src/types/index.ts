@@ -15,6 +15,9 @@ export interface Animal {
   status: AnimalStatus
   stage: PigStage | null
   mother_id: string | null
+  father_id: string | null
+  mother_name: string | null   // madre no registrada (texto libre)
+  father_name: string | null   // padre no registrado (ej. toro de la pajuela)
   notes: string | null
   created_at: string
   updated_at: string
@@ -192,6 +195,19 @@ export interface MonthlyMilkSummary {
   average: number        // total / days with records
   daysRecorded: number
 }
+
+// ─── Weight records (pesos / ADG) ────────────────────────────────────────────
+
+export interface WeightRecord {
+  id: string
+  animal_id: string
+  recorded_date: string
+  weight_kg: number
+  notes: string | null
+  created_at: string
+}
+
+export type WeightRecordFormData = Omit<WeightRecord, 'id' | 'created_at'>
 
 // ─── Heat records (celo) ─────────────────────────────────────────────────────
 

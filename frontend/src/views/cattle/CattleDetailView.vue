@@ -186,19 +186,100 @@ async function removeInseminationRecord(record: InseminationRecord) {
   inseminationHistory.value = inseminationHistory.value.filter(r => r.id !== record.id)
 }
 
-async function clearPregnancy() {
-  if (!animal.value) return
-  if (!confirm('¿Registrar parto y cerrar la preñez? Esto marcará la vaca como no preñada y sumará un parto.')) return
+// ─── Registro de parto (crea el ternero con sus padres automáticos) ──────────
+
+const showBirthForm = ref(false)
+const birthForm = reactive({
+  birth_date: localToday(),
+  create_calf: true,
+  calf_ear_tag: '',
+  calf_name: '',
+  calf_sex: 'female' as 'male' | 'female',
+  saving: false
+})
+
+// Padre de la cría: el toro registrado en la pajuela de la inseminación
+// que produjo esta preñez (la confirmada, o la más reciente)
+const sireName = computed(() => {
+  const confirmed = inseminationHistory.value.find(r => r.pregnancy_confirmed === true)
+  return (confirmed ?? inseminationHistory.value[0])?.semen_source ?? null
+})
+
+async function registerBirth() {
+  if (!animal.value || !birthForm.birth_date) return
+  birthForm.saving = true
   try {
-    const updated = await upsertCattleDetail(animal.value.id, {
-      is_pregnant: false,
-      conception_date: null,
-      expected_birth: null,
-      last_birth_date: localToday(),
-      birth_count: (detail.value?.birth_count ?? 0) + 1
+    const cow = animal.value
+
+    let calfId: string | null = null
+    if (birthForm.create_calf) {
+      const calf = await animalsStore.addAnimal(
+        {
+          species: 'cattle',
+          sex: birthForm.calf_sex,
+          ear_tag: birthForm.calf_ear_tag || null,
+          name: birthForm.calf_name || null,
+          birth_date: birthForm.birth_date,
+          status: 'active',
+          stage: null,
+          notes: null,
+          mother_id: cow.id,
+          father_id: null,
+          mother_name: null,
+          father_name: sireName.value
+        } as any,
+        { is_pregnant: false, conception_date: null, expected_birth: null } as any
+      )
+      calfId = calf.id
+    }
+
+    const { error: birthError } = await supabase.from('calf_births').insert({
+      cow_id: cow.id,
+      calf_id: calfId,
+      birth_date: birthForm.birth_date,
+      notes: sireName.value ? `Padre: ${sireName.value}` : null
     })
-    animal.value = { ...animal.value, cattle_detail: updated }
+    if (birthError) throw birthError
+
+    // El trigger trg_update_cow_birth_count ya actualizó el detalle de la vaca
+    // (contador, último parto, cierra la preñez) — solo recargamos
+    const { data: freshDetail } = await supabase
+      .from('cattle_details')
+      .select('*')
+      .eq('animal_id', cow.id)
+      .maybeSingle()
+    animal.value = { ...cow, cattle_detail: freshDetail as any }
+    showBirthForm.value = false
+    birthForm.calf_ear_tag = ''
+    birthForm.calf_name = ''
+    await loadGenealogy()
   } catch (e) { alert('Error: ' + (e as Error).message) }
+  finally { birthForm.saving = false }
+}
+
+// ─── Genealogía (padres y crías) ─────────────────────────────────────────────
+
+const mother = ref<Animal | null>(null)
+const father = ref<Animal | null>(null)
+const offspring = ref<Pick<Animal, 'id' | 'ear_tag' | 'name' | 'sex' | 'birth_date' | 'status'>[]>([])
+
+function genealogyLabel(a: { ear_tag: string | null; name: string | null }) {
+  return a.ear_tag && a.name ? `${a.ear_tag} · ${a.name}` : (a.ear_tag ?? a.name ?? 'Sin arete')
+}
+
+async function loadGenealogy() {
+  if (!animal.value) return
+  const a = animal.value
+  ;[mother.value, father.value] = await Promise.all([
+    a.mother_id ? animalsStore.getAnimal(a.mother_id).then(r => r ?? null) : Promise.resolve(null),
+    a.father_id ? animalsStore.getAnimal(a.father_id).then(r => r ?? null) : Promise.resolve(null)
+  ])
+  const { data } = await supabase
+    .from('animals')
+    .select('id, ear_tag, name, sex, birth_date, status')
+    .or(`mother_id.eq.${a.id},father_id.eq.${a.id}`)
+    .order('birth_date', { ascending: false })
+  offspring.value = (data ?? []) as typeof offspring.value
 }
 
 async function undoPregnancyConfirmation() {
@@ -228,6 +309,7 @@ async function undoPregnancyConfirmation() {
 onMounted(async () => {
   animal.value = (await animalsStore.getAnimal(route.params.id as string)) ?? null
   loading.value = false
+  loadGenealogy()
   if (animal.value?.sex === 'female') {
     milkLoading.value = true
     inseminHistLoading.value = true
@@ -345,6 +427,22 @@ const statusLabel: Record<string, string> = {
             <p class="text-xs text-gray-500 uppercase tracking-wide">Nacimiento</p>
             <p class="text-sm text-gray-800 font-medium mt-0.5">{{ formatDate(animal.birth_date) }}</p>
           </div>
+          <div v-if="mother || animal.mother_name">
+            <p class="text-xs text-gray-500 uppercase tracking-wide">Madre</p>
+            <RouterLink v-if="mother" :to="`/cattle/${mother.id}`"
+              class="text-sm font-medium text-primary-600 hover:underline mt-0.5 inline-block">
+              {{ genealogyLabel(mother) }}
+            </RouterLink>
+            <p v-else class="text-sm text-gray-800 font-medium mt-0.5">{{ animal.mother_name }}</p>
+          </div>
+          <div v-if="father || animal.father_name">
+            <p class="text-xs text-gray-500 uppercase tracking-wide">Padre</p>
+            <RouterLink v-if="father" :to="`/cattle/${father.id}`"
+              class="text-sm font-medium text-primary-600 hover:underline mt-0.5 inline-block">
+              {{ genealogyLabel(father) }}
+            </RouterLink>
+            <p v-else class="text-sm text-gray-800 font-medium mt-0.5">{{ animal.father_name }}</p>
+          </div>
           <div v-if="detail?.birth_count">
             <p class="text-xs text-gray-500 uppercase tracking-wide">Partos</p>
             <p class="text-sm text-gray-800 font-medium mt-0.5">{{ detail.birth_count }}</p>
@@ -416,9 +514,46 @@ const statusLabel: Record<string, string> = {
             <BaseButton variant="secondary" size="sm" @click="undoPregnancyConfirmation">
               Volver a pendiente
             </BaseButton>
-            <BaseButton variant="secondary" size="sm" @click="clearPregnancy">
-              Registrar parto
+            <BaseButton size="sm" @click="showBirthForm = !showBirthForm">
+              <Baby class="w-4 h-4" /> Registrar parto
             </BaseButton>
+          </div>
+
+          <!-- Formulario de parto: crea la cría con sus padres automáticos -->
+          <div v-if="showBirthForm" class="rounded-lg bg-white border border-emerald-200 p-4 space-y-3">
+            <p class="text-sm font-semibold text-gray-700">Registrar parto</p>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <BaseInput v-model="birthForm.birth_date" label="Fecha del parto" type="date" required />
+            </div>
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input v-model="birthForm.create_calf" type="checkbox"
+                class="rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+              <span class="text-sm font-medium text-gray-700">Registrar la cría en el sistema</span>
+            </label>
+            <template v-if="birthForm.create_calf">
+              <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <BaseInput v-model="birthForm.calf_ear_tag" label="Arete de la cría" placeholder="ej. BOV-012" />
+                <BaseInput v-model="birthForm.calf_name" label="Nombre (opcional)" placeholder="ej. Lucero" />
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-1">Sexo</label>
+                  <select v-model="birthForm.calf_sex" class="form-select">
+                    <option value="female">Hembra</option>
+                    <option value="male">Macho</option>
+                  </select>
+                </div>
+              </div>
+              <p class="text-xs text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
+                La cría quedará con madre <span class="font-semibold">{{ animal.ear_tag ?? animal.name }}</span>
+                <template v-if="sireName"> y padre <span class="font-semibold">{{ sireName }}</span> (toro de la pajuela)</template>
+                <template v-else> — sin padre registrado (la inseminación no tiene semental anotado)</template>.
+              </p>
+            </template>
+            <div class="flex justify-end gap-2">
+              <BaseButton variant="secondary" size="sm" @click="showBirthForm = false">Cancelar</BaseButton>
+              <BaseButton size="sm" :loading="birthForm.saving" @click="registerBirth">
+                <Baby class="w-4 h-4" /> Guardar parto
+              </BaseButton>
+            </div>
           </div>
         </div>
 
@@ -667,6 +802,32 @@ const statusLabel: Record<string, string> = {
               </tr>
             </tbody>
           </table>
+        </div>
+      </div>
+
+      <!-- Crías -->
+      <div v-if="offspring.length" class="card space-y-3">
+        <h3 class="text-sm font-semibold text-gray-700 flex items-center gap-2">
+          <Baby class="w-4 h-4 text-pink-500" /> Crías ({{ offspring.length }})
+        </h3>
+        <div class="divide-y divide-gray-100">
+          <RouterLink
+            v-for="o in offspring"
+            :key="o.id"
+            :to="`/cattle/${o.id}`"
+            class="flex items-center justify-between py-2 first:pt-0 last:pb-0 group"
+          >
+            <div>
+              <p class="text-sm font-medium text-gray-800 group-hover:text-primary-600">
+                {{ genealogyLabel(o) }}
+              </p>
+              <p class="text-xs text-gray-400">
+                {{ o.sex === 'female' ? 'Hembra' : 'Macho' }}
+                <template v-if="o.birth_date"> · nació el {{ formatDate(o.birth_date) }}</template>
+              </p>
+            </div>
+            <BaseBadge :variant="statusVariant[o.status]">{{ statusLabel[o.status] }}</BaseBadge>
+          </RouterLink>
         </div>
       </div>
 

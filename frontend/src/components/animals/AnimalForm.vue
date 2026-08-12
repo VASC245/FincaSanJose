@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { reactive, watch, computed } from 'vue'
+import { reactive, watch, computed, onMounted } from 'vue'
 import BaseInput from '@/components/shared/BaseInput.vue'
 import BaseButton from '@/components/shared/BaseButton.vue'
+import { useAnimalsStore } from '@/stores/animals'
 import type { Animal, CattleDetail, PigDetail, Species } from '@/types'
 
 const props = withDefaults(
@@ -24,8 +25,33 @@ const form = reactive({
   sex: 'female' as 'male' | 'female',
   birth_date: '',
   status: 'active' as Animal['status'],
-  notes: ''
+  notes: '',
+  mother_id: '',
+  father_id: '',
+  mother_name: '',
+  father_name: ''
 })
+
+// ─── Genealogía: candidatos a madre/padre de la misma especie ────────────────
+const animalsStore = useAnimalsStore()
+onMounted(() => {
+  if (!animalsStore.animals.length) animalsStore.loadAnimals()
+})
+
+function parentLabel(a: Animal) {
+  return a.ear_tag && a.name ? `${a.ear_tag} · ${a.name}` : (a.ear_tag ?? a.name ?? 'Sin arete')
+}
+
+const motherOptions = computed(() =>
+  animalsStore.animals.filter(
+    (a) => a.species === props.species && a.sex === 'female' && a.id !== props.animal?.id
+  )
+)
+const fatherOptions = computed(() =>
+  animalsStore.animals.filter(
+    (a) => a.species === props.species && a.sex === 'male' && a.id !== props.animal?.id
+  )
+)
 
 const cattleDetail = reactive({
   is_pregnant: false,
@@ -49,6 +75,10 @@ watch(
     form.birth_date = a.birth_date ?? ''
     form.status = a.status
     form.notes = a.notes ?? ''
+    form.mother_id = a.mother_id ?? ''
+    form.father_id = a.father_id ?? ''
+    form.mother_name = a.mother_name ?? ''
+    form.father_name = a.father_name ?? ''
 
     if (a.cattle_detail) {
       cattleDetail.is_pregnant = a.cattle_detail.is_pregnant
@@ -75,7 +105,12 @@ function handleSubmit() {
     species: props.species,
     birth_date: form.birth_date || null,
     status: form.status,
-    notes: form.notes || null
+    notes: form.notes || null,
+    mother_id: form.mother_id || null,
+    father_id: form.father_id || null,
+    // el texto libre solo aplica cuando no hay animal registrado seleccionado
+    mother_name: form.mother_id ? null : form.mother_name || null,
+    father_name: form.father_id ? null : form.father_name || null
   }
 
   if (props.species === 'cattle') {
@@ -132,6 +167,48 @@ function handleSubmit() {
       </div>
 
       <BaseInput v-model="form.birth_date" label="Fecha de nacimiento" type="date" />
+    </fieldset>
+
+    <!-- Genealogía -->
+    <fieldset class="space-y-4">
+      <legend class="text-sm font-semibold text-gray-700 border-b border-gray-100 pb-2 w-full">
+        Padres
+      </legend>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div class="space-y-2">
+          <label class="block text-sm font-medium text-gray-700">Madre</label>
+          <select v-model="form.mother_id" class="form-select">
+            <option value="">— No registrada —</option>
+            <option v-for="m in motherOptions" :key="m.id" :value="m.id">
+              {{ parentLabel(m) }}
+            </option>
+          </select>
+          <BaseInput
+            v-if="!form.mother_id"
+            v-model="form.mother_name"
+            label="Nombre de la madre (si no está registrada)"
+            placeholder="ej. Paloma"
+          />
+        </div>
+        <div class="space-y-2">
+          <label class="block text-sm font-medium text-gray-700">Padre</label>
+          <select v-model="form.father_id" class="form-select">
+            <option value="">— No registrado —</option>
+            <option v-for="p in fatherOptions" :key="p.id" :value="p.id">
+              {{ parentLabel(p) }}
+            </option>
+          </select>
+          <BaseInput
+            v-if="!form.father_id"
+            v-model="form.father_name"
+            label="Nombre del padre (si no está registrado)"
+            placeholder="ej. toro de la pajuela"
+          />
+        </div>
+      </div>
+      <p v-if="species === 'cattle'" class="text-xs text-gray-400">
+        Si la cría nace de una inseminación registrada, la madre y el toro de la pajuela se asignan automáticamente al registrar el parto.
+      </p>
     </fieldset>
 
     <!-- Bovino detail -->
