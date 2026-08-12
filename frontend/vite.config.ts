@@ -25,11 +25,17 @@ export default defineConfig({
       workbox: {
         importScripts: ['push-sw.js'],
         globPatterns: ['**/*.{js,css,html,svg,png,ico}'],
+        // Sin señal, cualquier ruta interna (/cattle/xyz...) abre con el shell precacheado
+        navigateFallback: '/index.html',
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/.*\.supabase\.co\/.*/i,
             handler: 'NetworkFirst',
-            options: { cacheName: 'supabase-cache', networkTimeoutSeconds: 5 }
+            options: {
+              cacheName: 'supabase-cache',
+              networkTimeoutSeconds: 5,
+              expiration: { maxEntries: 500, maxAgeSeconds: 60 * 60 * 24 * 30 }
+            }
           }
         ]
       }

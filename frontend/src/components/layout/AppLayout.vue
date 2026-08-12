@@ -4,6 +4,7 @@ import AppSidebar from './AppSidebar.vue'
 import AppHeader from './AppHeader.vue'
 import AIAssistant from '@/components/shared/AIAssistant.vue'
 import UpdatePrompt from '@/components/shared/UpdatePrompt.vue'
+import OfflineIndicator from '@/components/shared/OfflineIndicator.vue'
 
 const sidebarOpen = ref(false)
 </script>
@@ -28,6 +29,8 @@ const sidebarOpen = ref(false)
     <!-- Main content -->
     <div class="flex flex-1 flex-col overflow-hidden">
       <AppHeader @toggle-sidebar="sidebarOpen = !sidebarOpen" />
+
+      <OfflineIndicator />
 
       <main class="flex-1 overflow-y-auto p-4 lg:p-6">
         <RouterView />
