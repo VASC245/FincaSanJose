@@ -13,7 +13,8 @@ import {
   Milk,
   Receipt,
   HandCoins,
-  CalendarCheck
+  CalendarCheck,
+  HeartHandshake
 } from 'lucide-vue-next'
 
 defineProps<{ open: boolean }>()
@@ -28,6 +29,7 @@ const navItems = [
   { to: '/cattle/milk', label: 'Leche', icon: Milk },
   { to: '/pigs', label: 'Porcinos', icon: PiggyBank },
   { to: '/pigs/litters', label: 'Camadas', icon: Baby },
+  { to: '/reproduccion', label: 'Reproducción', icon: HeartHandshake },
   { to: '/inventory', label: 'Inventario', icon: Package },
   { to: '/tasks', label: 'Tareas', icon: ClipboardList },
   { to: '/gastos', label: 'Gastos', icon: Receipt },

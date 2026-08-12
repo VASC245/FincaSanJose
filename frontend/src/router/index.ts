@@ -20,6 +20,13 @@ const router = createRouter({
           component: () => import('@/views/trabajo/TrabajoView.vue'),
           meta: { title: 'Qué toca hoy' }
         },
+        // Reproducción
+        {
+          path: 'reproduccion',
+          name: 'reproduccion',
+          component: () => import('@/views/reproduccion/ReproduccionView.vue'),
+          meta: { title: 'Reproducción' }
+        },
         // Cattle
         {
           path: 'cattle',
