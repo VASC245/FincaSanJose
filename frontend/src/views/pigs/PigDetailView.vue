@@ -8,6 +8,7 @@ import BaseInput from '@/components/shared/BaseInput.vue'
 import PregnancyBadge from '@/components/cattle/PregnancyBadge.vue'
 import VaccinationList from '@/components/animals/VaccinationList.vue'
 import LitterList from '@/components/pigs/LitterList.vue'
+import BcsSection from '@/components/animals/BcsSection.vue'
 import { useAnimalsStore } from '@/stores/animals'
 import { upsertPigDetail } from '@/services/animalService'
 import { supabase } from '@/lib/supabase'
@@ -775,6 +776,9 @@ function daysLabel(days: number): string {
           </table>
         </div>
       </div>
+
+      <!-- Condición corporal (hembras reproductoras) -->
+      <BcsSection v-if="isFemale" :animal-id="animal.id" />
 
       <!-- Vaccination history -->
       <div class="card">

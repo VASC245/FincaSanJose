@@ -58,6 +58,14 @@ PESOS / ENGORDE (tabla: weight_records)
   diaria de peso (ADG). Meta en engorde: 600–900 g/día. La vista Engorde de la
   app muestra además el costo de alimento por kg ganado.
 
+CONDICIÓN CORPORAL (tabla: bcs_records)
+- register_bcs registra el BCS 1-5 (momentos: secado, parto, servicio, destete).
+  Ideal 3-3.5 en parto y secado; <2.5 flaca, >4 pasada de condición.
+
+DESTETES (litters.weaned_count)
+- register_weaning anota cuántos lechones destetó la última camada de una
+  cerda. Alimenta el KPI destetados/cerda/año (meta ≥ 22, vista Reproducción).
+
 BOVINOS (tabla: cattle_details)
 - Preñez: is_pregnant, conception_date, expected_birth, last_birth_date, birth_count
 - Partos: tabla calf_births (cow_id, calf_id, birth_date)

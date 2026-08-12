@@ -7,6 +7,7 @@ import BaseButton from '@/components/shared/BaseButton.vue'
 import BaseInput from '@/components/shared/BaseInput.vue'
 import PregnancyBadge from '@/components/cattle/PregnancyBadge.vue'
 import VaccinationList from '@/components/animals/VaccinationList.vue'
+import BcsSection from '@/components/animals/BcsSection.vue'
 import { useAnimalsStore } from '@/stores/animals'
 import { upsertCattleDetail } from '@/services/animalService'
 import { fetchMilkRecords, createMilkRecord, updateMilkRecord, deleteMilkRecord } from '@/services/milkService'
@@ -830,6 +831,9 @@ const statusLabel: Record<string, string> = {
           </RouterLink>
         </div>
       </div>
+
+      <!-- Condición corporal (hembras) -->
+      <BcsSection v-if="isFemale" :animal-id="animal.id" />
 
       <!-- Vaccination history -->
       <div class="card">

@@ -67,6 +67,8 @@ export const TOOL_LABELS: Record<string, string> = {
   get_weights:              'Consultando pesos y ganancia diaria...',
   // Acciones
   register_weight:          'Registrando pesaje...',
+  register_bcs:             'Registrando condición corporal...',
+  register_weaning:         'Registrando destete...',
   register_animal:          'Registrando animal...',
   update_animal_status:     'Actualizando estado del animal...',
   register_cattle_birth:    'Registrando parto bovino...',
@@ -369,6 +371,33 @@ const tools: Tool[] = [
         notes: { type: 'string', description: 'Notas (opcional)' }
       },
       required: ['ear_tag', 'weight_kg']
+    }
+  },
+  {
+    name: 'register_bcs',
+    description: 'Registra la condición corporal (BCS) de un animal, escala 1 (muy flaca) a 5 (muy gorda). Ideal 3-3.5 en parto y secado.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        ear_tag: { type: 'string', description: 'Arete o nombre del animal' },
+        score: { type: 'number', description: 'Puntaje 1 a 5 (acepta medios: 2.5, 3.5...)' },
+        moment: { type: 'string', enum: ['secado', 'parto', 'servicio', 'destete', 'otro'], description: 'Momento de la calificación' },
+        date: { type: 'string', description: 'Fecha YYYY-MM-DD (opcional, por defecto hoy)' },
+        notes: { type: 'string', description: 'Notas (opcional)' }
+      },
+      required: ['ear_tag', 'score']
+    }
+  },
+  {
+    name: 'register_weaning',
+    description: 'Registra cuántos lechones destetó la última camada de una cerda (alimenta el KPI destetados/cerda/año).',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        sow_ear_tag: { type: 'string', description: 'Arete o nombre de la cerda' },
+        weaned_count: { type: 'number', description: 'Número de lechones destetados' }
+      },
+      required: ['sow_ear_tag', 'weaned_count']
     }
   },
   // ── Acciones: inventario ───────────────────────────────────────────────────
@@ -1165,6 +1194,50 @@ async function registerWeight(input: {
   return `✓ Pesaje registrado: ${animal.ear_tag ?? animal.name} pesó ${input.weight_kg} kg el ${fecha}.`
 }
 
+async function registerBcs(input: {
+  ear_tag: string; score: number; moment?: string; date?: string; notes?: string
+}): Promise<string> {
+  const animal = await findAnimal(input.ear_tag)
+  if (!animal) return `No encontré animal "${input.ear_tag}".`
+  if (input.score < 1 || input.score > 5) return 'El puntaje BCS debe estar entre 1 y 5.'
+  const fecha = input.date ?? localToday()
+  const { error } = await supabase.from('bcs_records').insert({
+    animal_id: animal.id,
+    recorded_date: fecha,
+    score: input.score,
+    moment: input.moment ?? 'otro',
+    notes: input.notes ?? null
+  })
+  if (error) return `Error al registrar condición corporal: ${error.message}`
+  const alerta = input.score < 2.5
+    ? ' ⚠ Está flaca — revisar alimentación.'
+    : input.score > 4
+      ? ' ⚠ Está pasada de condición — cuidado con problemas al parto.'
+      : ''
+  return `✓ Condición corporal registrada: ${animal.ear_tag ?? animal.name} con BCS ${input.score}/5 el ${fecha}.${alerta}`
+}
+
+async function registerWeaning(input: {
+  sow_ear_tag: string; weaned_count: number
+}): Promise<string> {
+  const sow = await findAnimal(input.sow_ear_tag)
+  if (!sow) return `No encontré cerda "${input.sow_ear_tag}".`
+  const { data: litter } = await supabase
+    .from('litters')
+    .select('id, birth_date, born_alive')
+    .eq('sow_id', sow.id)
+    .order('birth_date', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (!litter) return `${sow.ear_tag ?? sow.name} no tiene camadas registradas.`
+  const { error } = await supabase
+    .from('litters')
+    .update({ weaned_count: input.weaned_count })
+    .eq('id', litter.id)
+  if (error) return `Error al registrar destete: ${error.message}`
+  return `✓ Destete registrado: la camada del ${litter.birth_date} de ${sow.ear_tag ?? sow.name} destetó ${input.weaned_count} lechón(es) de ${litter.born_alive} nacidos vivos.`
+}
+
 async function addInventoryStock(input: {
   item_name: string; quantity: number; date: string; notes?: string
 }): Promise<string> {
@@ -1505,6 +1578,8 @@ async function executeTool(name: string, input: Record<string, unknown>): Promis
       case 'get_milk_withdrawals':     return await getMilkWithdrawals()
       case 'get_weights':              return await getWeights(input as Parameters<typeof getWeights>[0])
       case 'register_weight':          return await registerWeight(input as Parameters<typeof registerWeight>[0])
+      case 'register_bcs':             return await registerBcs(input as Parameters<typeof registerBcs>[0])
+      case 'register_weaning':         return await registerWeaning(input as Parameters<typeof registerWeaning>[0])
       // Acciones animales
       case 'register_animal':          return await registerAnimal(input as Parameters<typeof registerAnimal>[0])
       case 'update_animal_status':     return await updateAnimalStatus(input as Parameters<typeof updateAnimalStatus>[0])
