@@ -237,6 +237,7 @@ const litterEditForm = reactive({
   birth_date: '',
   total_born: 0,
   born_alive: 0,
+  weaned_count: '' as string | number,
   notes: '' as string | null,
   saving: false
 })
@@ -246,6 +247,7 @@ function startEditLitter(litter: LitterWithSow) {
   litterEditForm.birth_date = litter.birth_date
   litterEditForm.total_born = litter.total_born
   litterEditForm.born_alive = litter.born_alive
+  litterEditForm.weaned_count = litter.weaned_count ?? ''
   litterEditForm.notes = litter.notes ?? ''
   litterEditForm.saving = false
 }
@@ -263,6 +265,7 @@ async function saveEditLitter() {
       birth_date: newBirthDate,
       total_born: litterEditForm.total_born,
       born_alive: litterEditForm.born_alive,
+      weaned_count: litterEditForm.weaned_count === '' ? null : Number(litterEditForm.weaned_count),
       notes: litterEditForm.notes || null
     })
     const idx = litters.value.findIndex((l) => l.id === editingLitterId.value)
@@ -331,6 +334,10 @@ function daysLabel(days: number): string {
               <label class="block text-xs text-gray-500 mb-1">Nacidos vivos</label>
               <input v-model.number="litterEditForm.born_alive" type="number" min="0" class="form-input text-sm" />
             </div>
+            <div>
+              <label class="block text-xs text-gray-500 mb-1">Destetados</label>
+              <input v-model="litterEditForm.weaned_count" type="number" min="0" class="form-input text-sm" placeholder="al destete" />
+            </div>
           </div>
           <div>
             <label class="block text-xs text-gray-500 mb-1">Notas</label>
@@ -368,7 +375,9 @@ function daysLabel(days: number): string {
                   <span v-if="litter.sow.name" class="text-gray-400">· {{ litter.sow.name }}</span>
                 </button>
               </div>
-              <p class="text-xs text-gray-500 mt-0.5">{{ litter.total_born }} nacidos · {{ litter.born_alive }} vivos</p>
+              <p class="text-xs text-gray-500 mt-0.5">
+                {{ litter.total_born }} nacidos · {{ litter.born_alive }} vivos<template v-if="litter.weaned_count != null"> · {{ litter.weaned_count }} destetados</template>
+              </p>
             </div>
           </div>
           <div class="flex items-center gap-2 shrink-0">

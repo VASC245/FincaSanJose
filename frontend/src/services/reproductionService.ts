@@ -34,6 +34,19 @@ export interface SowIndicators {
   intervaloCamadas: number | null  // promedio días entre camadas
   camadasPorAno: number | null     // 365 / intervalo
   diasDesdeCamada: number | null
+  nacidosVivosProm: number | null  // promedio nacidos vivos por camada
+  destetadosProm: number | null    // promedio destetados por camada
+  destetadosPorAno: number | null  // destetadosProm × camadasPorAno (KPI PigCHAMP)
+  destetadosEstimados: boolean     // true si se usó nacidos vivos por falta de dato de destete
+}
+
+export interface SireRanking {
+  name: string          // semen_source (toro o verraco)
+  servicios: number
+  prenadas: number      // pregnancy_confirmed = true
+  fallidas: number      // pregnancy_confirmed = false
+  pendientes: number
+  tasa: number | null   // prenadas / (prenadas + fallidas), en %
 }
 
 export interface HerdIndicators {
@@ -47,6 +60,7 @@ export interface HerdIndicators {
 export interface ReproductionData {
   cows: CowIndicators[]
   sows: SowIndicators[]
+  sires: SireRanking[]
   herd: HerdIndicators
 }
 
@@ -100,11 +114,11 @@ export async function fetchReproductionData(): Promise<ReproductionData> {
       .order('birth_date', { ascending: true }),
     supabase
       .from('litters')
-      .select('sow_id, birth_date')
+      .select('sow_id, birth_date, born_alive, weaned_count')
       .order('birth_date', { ascending: true }),
     supabase
       .from('insemination_records')
-      .select('animal_id, insemination_date, pregnancy_confirmed'),
+      .select('animal_id, insemination_date, pregnancy_confirmed, semen_source'),
   ])
 
   type Row = {
@@ -131,22 +145,46 @@ export async function fetchReproductionData(): Promise<ReproductionData> {
     arr.push(b.birth_date)
     partosPorVaca.set(b.cow_id, arr)
   }
-  const camadasPorCerda = new Map<string, string[]>()
-  for (const l of (litters ?? []) as { sow_id: string; birth_date: string }[]) {
+  type LitterRow = { sow_id: string; birth_date: string; born_alive: number; weaned_count: number | null }
+  const camadasPorCerda = new Map<string, LitterRow[]>()
+  for (const l of (litters ?? []) as LitterRow[]) {
     const arr = camadasPorCerda.get(l.sow_id) ?? []
-    arr.push(l.birth_date)
+    arr.push(l)
     camadasPorCerda.set(l.sow_id, arr)
   }
   const serviciosPorAnimal = new Map<string, { date: string; confirmed: boolean | null }[]>()
+  const porSemental = new Map<string, SireRanking>()
   for (const s of (inseminations ?? []) as {
     animal_id: string
     insemination_date: string
     pregnancy_confirmed: boolean | null
+    semen_source: string | null
   }[]) {
     const arr = serviciosPorAnimal.get(s.animal_id) ?? []
     arr.push({ date: s.insemination_date, confirmed: s.pregnancy_confirmed })
     serviciosPorAnimal.set(s.animal_id, arr)
+
+    // Ranking de sementales (toros de pajuela / verracos)
+    const nombre = s.semen_source?.trim()
+    if (nombre) {
+      const r = porSemental.get(nombre.toLowerCase()) ?? {
+        name: nombre, servicios: 0, prenadas: 0, fallidas: 0, pendientes: 0, tasa: null
+      }
+      r.servicios++
+      if (s.pregnancy_confirmed === true) r.prenadas++
+      else if (s.pregnancy_confirmed === false) r.fallidas++
+      else r.pendientes++
+      porSemental.set(nombre.toLowerCase(), r)
+    }
   }
+  const sires = [...porSemental.values()].map((r) => ({
+    ...r,
+    tasa: r.prenadas + r.fallidas > 0
+      ? Math.round((r.prenadas / (r.prenadas + r.fallidas)) * 100)
+      : null
+  }))
+  // Mejor tasa primero; sin datos al final
+  sires.sort((a, b) => (b.tasa ?? -1) - (a.tasa ?? -1))
 
   // ── Vacas ──────────────────────────────────────────────────────────────────
   const cows: CowIndicators[] = []
@@ -214,13 +252,33 @@ export async function fetchReproductionData(): Promise<ReproductionData> {
     const esReproductora = a.stage === 'reproduccion' || camadas.length > 0 || (d?.litter_count ?? 0) > 0 || !!d?.is_pregnant
     if (!esReproductora) continue
 
-    const lastLitter = camadas.length ? camadas[camadas.length - 1] : null
+    const lastLitter = camadas.length ? camadas[camadas.length - 1].birth_date : null
     const gaps: number[] = []
     for (let i = 1; i < camadas.length; i++) {
-      const g = daysBetween(camadas[i - 1], camadas[i])
+      const g = daysBetween(camadas[i - 1].birth_date, camadas[i].birth_date)
       if (g > 0) gaps.push(g)
     }
     const intervaloCamadas = avg(gaps)
+    const camadasPorAno = intervaloCamadas ? Math.round((365 / intervaloCamadas) * 10) / 10 : null
+
+    // KPI PigCHAMP: destetados/cerda/año. Si a una camada le falta el dato de
+    // destete se usa nacidos vivos como estimado (y se marca).
+    const round1 = (n: number) => Math.round(n * 10) / 10
+    const nacidosVivosProm = camadas.length
+      ? round1(camadas.reduce((s, c) => s + Number(c.born_alive), 0) / camadas.length)
+      : null
+    let destetadosProm: number | null = null
+    let destetadosEstimados = false
+    if (camadas.length) {
+      const valores = camadas.map((c) => {
+        if (c.weaned_count == null) destetadosEstimados = true
+        return Number(c.weaned_count ?? c.born_alive)
+      })
+      destetadosProm = round1(valores.reduce((s, v) => s + v, 0) / valores.length)
+    }
+    const destetadosPorAno = destetadosProm != null && camadasPorAno != null
+      ? round1(destetadosProm * camadasPorAno)
+      : null
 
     sows.push({
       animalId: a.id,
@@ -229,12 +287,17 @@ export async function fetchReproductionData(): Promise<ReproductionData> {
       lastLitter,
       litterCount: Math.max(camadas.length, d?.litter_count ?? 0),
       intervaloCamadas,
-      camadasPorAno: intervaloCamadas ? Math.round((365 / intervaloCamadas) * 10) / 10 : null,
+      camadasPorAno,
       diasDesdeCamada: lastLitter ? -daysFromToday(lastLitter) : null,
+      nacidosVivosProm,
+      destetadosProm,
+      destetadosPorAno,
+      destetadosEstimados,
     })
   }
 
-  sows.sort((a, b) => (b.diasDesdeCamada ?? -1) - (a.diasDesdeCamada ?? -1))
+  // Ranking de madres: mejores destetados/año primero; sin datos al final
+  sows.sort((a, b) => (b.destetadosPorAno ?? -1) - (a.destetadosPorAno ?? -1))
 
   // ── Promedios del hato ─────────────────────────────────────────────────────
   // Servicios por concepción global: servicios del ciclo entre vacas que quedaron preñadas
@@ -255,5 +318,10 @@ export async function fetchReproductionData(): Promise<ReproductionData> {
     ? Math.round((365 / herd.promIntervaloCamadas) * 10) / 10
     : null
 
-  return { cows, sows, herd }
+  return { cows, sows, sires, herd }
+}
+
+// Meta PigCHAMP: ≥ 22 destetados/cerda/año es bueno; < 18 es para revisar
+export function nivelDestetadosPorAno(n: number): IndicatorLevel {
+  return n >= 22 ? 'good' : n >= 18 ? 'warn' : 'bad'
 }

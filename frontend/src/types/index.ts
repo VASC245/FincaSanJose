@@ -64,6 +64,7 @@ export interface Litter {
   birth_date: string
   total_born: number
   born_alive: number
+  weaned_count: number | null   // se llena al destete (~21-28 días)
   notes: string | null
   created_at: string
 }

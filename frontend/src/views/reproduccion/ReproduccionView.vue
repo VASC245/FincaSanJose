@@ -9,6 +9,7 @@ import {
   nivelIntervaloPartos,
   nivelServicios,
   nivelIntervaloCamadas,
+  nivelDestetadosPorAno,
   type ReproductionData,
   type IndicatorLevel
 } from '@/services/reproductionService'
@@ -170,9 +171,12 @@ function chip(level: IndicatorLevel) {
         </div>
       </div>
 
-      <!-- Cerdas -->
+      <!-- Cerdas: ranking de madres -->
       <div class="card space-y-3">
-        <h2 class="text-sm font-semibold text-gray-700">Cerdas reproductoras</h2>
+        <div class="flex items-center justify-between flex-wrap gap-1">
+          <h2 class="text-sm font-semibold text-gray-700">Cerdas reproductoras — ranking de madres</h2>
+          <p class="text-xs text-gray-400">Ordenadas de mejor a peor por destetados/año</p>
+        </div>
         <p v-if="!data.sows.length" class="text-sm text-gray-400 py-4 text-center">
           Aún no hay camadas registradas en cerdas reproductoras.
         </p>
@@ -183,9 +187,11 @@ function chip(level: IndicatorLevel) {
                 <th class="px-3 py-2">Cerda</th>
                 <th class="px-3 py-2">Estado</th>
                 <th class="px-3 py-2">Última camada</th>
-                <th class="px-3 py-2">Días desde camada</th>
                 <th class="px-3 py-2">Intervalo camadas</th>
                 <th class="px-3 py-2">Camadas/año</th>
+                <th class="px-3 py-2">Vivos/camada</th>
+                <th class="px-3 py-2">Destetados/camada</th>
+                <th class="px-3 py-2">Destetados/año</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-gray-100">
@@ -207,9 +213,6 @@ function chip(level: IndicatorLevel) {
                   {{ s.lastLitter ? formatDate(s.lastLitter) : '—' }}
                   <span v-if="s.litterCount" class="text-xs text-gray-400">({{ s.litterCount }})</span>
                 </td>
-                <td class="px-3 py-2 text-gray-600">
-                  {{ s.diasDesdeCamada != null ? `${s.diasDesdeCamada} d` : '—' }}
-                </td>
                 <td class="px-3 py-2">
                   <span
                     v-if="s.intervaloCamadas != null"
@@ -222,6 +225,69 @@ function chip(level: IndicatorLevel) {
                 </td>
                 <td class="px-3 py-2 text-gray-600">
                   {{ s.camadasPorAno ?? '—' }}
+                </td>
+                <td class="px-3 py-2 text-gray-600">
+                  {{ s.nacidosVivosProm ?? '—' }}
+                </td>
+                <td class="px-3 py-2 text-gray-600">
+                  <template v-if="s.destetadosProm != null">
+                    {{ s.destetadosProm }}<span v-if="s.destetadosEstimados" class="text-amber-500" title="Estimado: falta el dato de destete en alguna camada">*</span>
+                  </template>
+                  <template v-else>—</template>
+                </td>
+                <td class="px-3 py-2">
+                  <span
+                    v-if="s.destetadosPorAno != null"
+                    class="text-[11px] font-medium rounded-full px-2 py-0.5"
+                    :class="chip(nivelDestetadosPorAno(s.destetadosPorAno))"
+                  >
+                    {{ s.destetadosPorAno }}
+                  </span>
+                  <span v-else class="text-gray-400">—</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p v-if="data.sows.some(s => s.destetadosEstimados)" class="text-xs text-amber-600">
+          * Estimado con nacidos vivos — registra los destetados editando la camada (Camadas → lápiz) para el dato real.
+        </p>
+      </div>
+
+      <!-- Ranking de sementales -->
+      <div class="card space-y-3">
+        <h2 class="text-sm font-semibold text-gray-700">Ranking de sementales (toros y verracos)</h2>
+        <p v-if="!data.sires.length" class="text-sm text-gray-400 py-4 text-center">
+          Aún no hay inseminaciones con nombre de semental registrado.
+        </p>
+        <div v-else class="overflow-x-auto">
+          <table class="min-w-full divide-y divide-gray-100 text-sm">
+            <thead>
+              <tr class="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                <th class="px-3 py-2">Semental</th>
+                <th class="px-3 py-2 text-right">Servicios</th>
+                <th class="px-3 py-2 text-right">Preñeces</th>
+                <th class="px-3 py-2 text-right">Fallidos</th>
+                <th class="px-3 py-2 text-right">Pendientes</th>
+                <th class="px-3 py-2 text-right">Efectividad</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+              <tr v-for="r in data.sires" :key="r.name" class="hover:bg-gray-50">
+                <td class="px-3 py-2 font-medium text-gray-800">{{ r.name }}</td>
+                <td class="px-3 py-2 text-right text-gray-600">{{ r.servicios }}</td>
+                <td class="px-3 py-2 text-right text-green-700 font-medium">{{ r.prenadas }}</td>
+                <td class="px-3 py-2 text-right text-red-600">{{ r.fallidas }}</td>
+                <td class="px-3 py-2 text-right text-gray-500">{{ r.pendientes }}</td>
+                <td class="px-3 py-2 text-right">
+                  <span
+                    v-if="r.tasa != null"
+                    class="text-[11px] font-medium rounded-full px-2 py-0.5"
+                    :class="r.tasa >= 60 ? 'bg-green-100 text-green-700' : r.tasa >= 40 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'"
+                  >
+                    {{ r.tasa }}%
+                  </span>
+                  <span v-else class="text-gray-400 text-xs">sin resultados</span>
                 </td>
               </tr>
             </tbody>
@@ -240,6 +306,8 @@ function chip(level: IndicatorLevel) {
           <li><span class="font-medium">Intervalo entre partos:</span> días entre un parto y el siguiente. La meta es un ternero por vaca al año (365–400 días).</li>
           <li><span class="font-medium">Servicios por preñez:</span> cuántas inseminaciones se necesitaron para preñar. Más de 2 seguidas indica revisar la vaca, el semen o el momento del servicio.</li>
           <li><span class="font-medium">Camadas por cerda/año:</span> una buena cerda logra 2.2 o más camadas al año (intervalo de ~165 días o menos).</li>
+          <li><span class="font-medium">Destetados por cerda/año:</span> el indicador más importante de una cerda. Meta: 22 o más; menos de 18 constante es señal de descartar esa madre.</li>
+          <li><span class="font-medium">Efectividad del semental:</span> preñeces logradas sobre servicios con resultado conocido. Menos del 40% seguido indica cambiar de pajuela o revisar el manejo del celo.</li>
         </ul>
       </div>
     </template>
