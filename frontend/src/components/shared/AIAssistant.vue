@@ -34,9 +34,10 @@ const micError     = ref('')
 const messagesEl   = ref<HTMLElement | null>(null)
 let msgId = 0
 
+// Solo consultas: un toque en una sugerencia no debe registrar datos
 const SUGGESTIONS = [
   '¿Qué toca hoy?',
-  'Hoy dimos 115 litros',
+  '¿Se puede vender toda la leche hoy?',
   '¿Cuánta leche dimos este mes comparado con el anterior?',
   '¿Cuáles vacas están preñadas y cuándo paren?',
   '¿Cuánto gastamos este mes y en qué?',
