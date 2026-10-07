@@ -57,7 +57,7 @@ const gastosMes = computed(() =>
 const balanceMes = computed(() => ingresosMes.value - gastosMes.value)
 
 function fmtCop(n: number) {
-  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n)
+  return new Intl.NumberFormat('es-EC', { style: 'currency', currency: 'USD' }).format(n)
 }
 
 const recentPendingTasks = computed(() =>

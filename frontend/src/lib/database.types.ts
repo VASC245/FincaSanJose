@@ -447,7 +447,6 @@ export type Database = {
         }
         Relationships: []
       }
-    }
       milk_sessions: {
         Row: {
           created_at: string

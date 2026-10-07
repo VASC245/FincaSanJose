@@ -148,7 +148,7 @@ const CATEGORIAS: Record<GastoCategoria, { label: string; color: string }> = {
 }
 
 function fmt(n: number) {
-  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n)
+  return new Intl.NumberFormat('es-EC', { style: 'currency', currency: 'USD' }).format(n)
 }
 
 function fmtFecha(s: string) {

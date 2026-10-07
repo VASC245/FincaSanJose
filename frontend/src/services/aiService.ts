@@ -1,6 +1,10 @@
 import { supabase } from '@/lib/supabase'
 import { createMovement } from './inventoryService'
 import { createVaccinationRecord, createBatchVaccinationRecords } from './vaccinationService'
+import { fetchWorkLists } from './workListService'
+import { fetchAlerts } from './alertsService'
+import { fetchReproductionData } from './reproductionService'
+import { fetchMetas } from './metasService'
 import { localToday, localDateOffset, addDaysToDate } from '@/lib/dates'
 
 // ─── Llamadas a Claude vía Edge Function ai-chat ─────────────────────────────
@@ -11,10 +15,15 @@ const API_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-chat`
 
 const today = localToday
 
+const formatUSD = (n: number) =>
+  new Intl.NumberFormat('es-EC', { style: 'currency', currency: 'USD' }).format(n)
+
 interface TextBlock  { type: 'text'; text: string }
 interface ToolUseBlock { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
-interface ToolResultBlock { type: 'tool_result'; tool_use_id: string; content: string }
-type ContentBlock = TextBlock | ToolUseBlock
+interface ToolResultBlock { type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean }
+// La respuesta también trae bloques thinking / fallback: se devuelven tal cual
+// en la siguiente vuelta, sin tocarlos.
+type ContentBlock = TextBlock | ToolUseBlock | { type: string; [key: string]: unknown }
 
 interface ApiMessage {
   role: 'user' | 'assistant'
@@ -22,7 +31,7 @@ interface ApiMessage {
 }
 
 interface ApiResponse {
-  stop_reason: 'end_turn' | 'tool_use'
+  stop_reason: 'end_turn' | 'tool_use' | 'max_tokens' | 'refusal' | 'pause_turn' | 'stop_sequence'
   content: ContentBlock[]
 }
 
@@ -39,11 +48,16 @@ async function callClaude(messages: ApiMessage[]): Promise<ApiResponse> {
     body: JSON.stringify({ tools, messages })
   })
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}))
-    throw new Error((err as { error?: { message?: string } }).error?.message ?? `HTTP ${res.status}`)
+    const err = await res.json().catch(() => ({})) as { error?: string | { message?: string } }
+    const msg = typeof err.error === 'string' ? err.error : err.error?.message
+    throw new Error(msg ?? `HTTP ${res.status}`)
   }
   return res.json()
 }
+
+// Error que se devuelve al modelo como texto (p. ej. arete ambiguo) para que
+// le pregunte al usuario en vez de adivinar.
+class ToolError extends Error {}
 
 export const TOOL_LABELS: Record<string, string> = {
   // Consultas
@@ -65,7 +79,16 @@ export const TOOL_LABELS: Record<string, string> = {
   get_vaccination_history:  'Consultando historial de vacunas...',
   get_milk_withdrawals:     'Consultando retiros de leche...',
   get_weights:              'Consultando pesos y ganancia diaria...',
+  get_work_list:            'Revisando qué toca hoy...',
+  get_alerts:               'Revisando alertas...',
+  get_reproduction_indicators: 'Calculando indicadores reproductivos...',
+  get_goals:                'Revisando metas y costos...',
+  query_data:               'Buscando en la base de datos...',
   // Acciones
+  insert_record:            'Guardando registro...',
+  update_record:            'Corrigiendo registro...',
+  delete_record:            'Borrando registro...',
+  remove_inventory_stock:   'Descontando del inventario...',
   register_weight:          'Registrando pesaje...',
   register_bcs:             'Registrando condición corporal...',
   register_weaning:         'Registrando destete...',
@@ -87,6 +110,26 @@ export const TOOL_LABELS: Record<string, string> = {
   update_task:              'Actualizando tarea...',
   complete_task:            'Completando tarea...',
 }
+
+// Tablas que el asistente puede tocar con las herramientas genéricas.
+// Las de configuración interna (push, dispositivos IoT) quedan fuera.
+const QUERYABLE_TABLES = [
+  'animals', 'cattle_details', 'pig_details', 'calf_births', 'litters', 'heat_records',
+  'insemination_records', 'vaccination_records', 'vaccines', 'milk_sessions', 'milk_records',
+  'weight_records', 'bcs_records', 'inventory_categories', 'inventory_items', 'inventory_movements',
+  'tasks', 'gastos', 'ventas', 'iot_alerts', 'sensor_readings', 'camera_events'
+] as const
+const WRITABLE_TABLES = [
+  'animals', 'cattle_details', 'pig_details', 'calf_births', 'litters', 'heat_records',
+  'insemination_records', 'vaccination_records', 'vaccines', 'milk_sessions', 'milk_records',
+  'weight_records', 'bcs_records', 'inventory_categories', 'inventory_items',
+  'tasks', 'gastos', 'ventas'
+] as const
+const DELETABLE_TABLES = [
+  'calf_births', 'litters', 'heat_records', 'insemination_records', 'vaccination_records',
+  'milk_sessions', 'milk_records', 'weight_records', 'bcs_records', 'tasks', 'gastos', 'ventas'
+] as const
+const INSERTABLE_TABLES = ['inventory_items', 'inventory_categories', 'vaccines'] as const
 
 interface Tool {
   name: string
@@ -259,7 +302,7 @@ const tools: Tool[] = [
         species: { type: 'string', enum: ['cattle', 'pig'], description: 'cattle=bovino, pig=porcino' },
         sex: { type: 'string', enum: ['male', 'female'], description: 'Sexo' },
         birth_date: { type: 'string', description: 'Fecha de nacimiento YYYY-MM-DD (opcional)' },
-        stage: { type: 'string', description: 'Etapa: cattle→(calf/heifer/cow/bull/steer), pig→(piglet/gilt/sow/boar/fattening)' },
+        stage: { type: 'string', enum: ['lactancia', 'destete', 'iniciacion', 'crecimiento', 'engorde', 'reproduccion'], description: 'Etapa — SOLO para cerdos (opcional). En bovinos no se usa.' },
         mother_ear_tag: { type: 'string', description: 'Arete de la madre (opcional)' },
         notes: { type: 'string', description: 'Notas adicionales (opcional)' }
       },
@@ -492,7 +535,7 @@ const tools: Tool[] = [
     input_schema: {
       type: 'object' as const,
       properties: {
-        monto: { type: 'number', description: 'Monto en pesos colombianos' },
+        monto: { type: 'number', description: 'Monto en dólares (USD)' },
         descripcion: { type: 'string' },
         categoria: {
           type: 'string',
@@ -533,7 +576,7 @@ const tools: Tool[] = [
     input_schema: {
       type: 'object' as const,
       properties: {
-        monto: { type: 'number', description: 'Monto total en pesos colombianos' },
+        monto: { type: 'number', description: 'Monto total en dólares (USD)' },
         descripcion: { type: 'string' },
         tipo: { type: 'string', enum: ['leche', 'animal', 'otro'] },
         fecha: { type: 'string', description: 'Fecha YYYY-MM-DD' },
@@ -587,20 +630,162 @@ const tools: Tool[] = [
       },
       required: ['title_search']
     }
+  },
+  // ── Inventario: salidas ────────────────────────────────────────────────────
+  {
+    name: 'remove_inventory_stock',
+    description: 'Registra una salida de inventario (consumo de alimento, insumo usado, producto dañado). Para medicamentos aplicados a un animal usa apply_single_vaccination, que ya descuenta.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        item_name: { type: 'string', description: 'Nombre del producto (búsqueda parcial)' },
+        quantity: { type: 'number', description: 'Cantidad que sale' },
+        date: { type: 'string', description: 'Fecha YYYY-MM-DD (opcional, por defecto hoy)' },
+        notes: { type: 'string', description: 'Motivo (ej: "comida cerdos de engorde")' }
+      },
+      required: ['item_name', 'quantity']
+    }
+  },
+  // ── Paneles de la app ──────────────────────────────────────────────────────
+  {
+    name: 'get_work_list',
+    description: 'Lo que toca hacer hoy y en los próximos días, calculado por la app: vacas por secar, partos próximos, chequeos de celo del día 21, hembras vacías, vacunas pendientes, retiros de leche y tareas vencidas.',
+    input_schema: { type: 'object' as const, properties: {}, required: [] }
+  },
+  {
+    name: 'get_alerts',
+    description: 'Alertas activas de la finca (stock bajo, partos cercanos, vacunas vencidas, etc.) con su nivel de urgencia.',
+    input_schema: { type: 'object' as const, properties: {}, required: [] }
+  },
+  {
+    name: 'get_reproduction_indicators',
+    description: 'Indicadores reproductivos: por vaca (días abiertos, intervalo entre partos, servicios por concepción), por cerda (camadas/año, nacidos vivos, destetados/año), ranking de toros/verracos por tasa de preñez, y promedios del hato.',
+    input_schema: { type: 'object' as const, properties: {}, required: [] }
+  },
+  {
+    name: 'get_goals',
+    description: 'Tablero de metas con semáforo (bien / atención / mal) y costos unitarios: costo por litro de leche, precio de venta por litro, margen, costo por lechón destetado.',
+    input_schema: { type: 'object' as const, properties: {}, required: [] }
+  },
+  // ── Acceso general a la base de datos ──────────────────────────────────────
+  {
+    name: 'query_data',
+    description: 'Lee cualquier tabla de la finca con filtros, orden y límite. Úsala para cualquier pregunta que las otras herramientas no cubran. Con stats_columns devuelve conteo, suma, promedio, mínimo y máximo calculados sobre TODAS las filas que cumplen los filtros (úsalo para totales y promedios en vez de sumar a mano). group_by agrupa esas estadísticas por una columna, o por mes/semana de una fecha con "month:columna" / "week:columna".',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        table: { type: 'string', enum: QUERYABLE_TABLES as unknown as string[], description: 'Tabla a leer' },
+        select: { type: 'string', description: 'Columnas, sintaxis de Supabase. Por defecto "*". Ej: "recorded_date, liters" o "*, animal:animals(ear_tag,name)"' },
+        filters: {
+          type: 'array',
+          description: 'Filtros combinados con Y',
+          items: {
+            type: 'object',
+            properties: {
+              column: { type: 'string' },
+              op: { type: 'string', enum: ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'ilike', 'is', 'in'], description: 'ilike busca texto parcial sin importar mayúsculas; is sirve para null/true/false; in recibe una lista' },
+              value: { description: 'Valor a comparar (para in: lista; para is: null, true o false)' }
+            },
+            required: ['column', 'op', 'value']
+          }
+        },
+        order_by: { type: 'string', description: 'Columna para ordenar (opcional)' },
+        ascending: { type: 'boolean', description: 'Orden ascendente (default false = más reciente primero)' },
+        limit: { type: 'number', description: 'Máximo de filas a devolver (default 50, máx 300)' },
+        stats_columns: { type: 'array', items: { type: 'string' }, description: 'Columnas numéricas para calcular conteo/suma/promedio/mín/máx (opcional)' },
+        group_by: { type: 'string', description: 'Agrupar las estadísticas por esta columna, o "month:fecha" / "week:fecha" (opcional, requiere stats_columns)' }
+      },
+      required: ['table']
+    }
+  },
+  {
+    name: 'insert_record',
+    description: 'Crea un registro en tablas que no tienen herramienta propia: inventory_items (producto nuevo), inventory_categories, vaccines (catálogo). Para todo lo demás usa la herramienta específica.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        table: { type: 'string', enum: INSERTABLE_TABLES as unknown as string[] },
+        values: { type: 'object', description: 'Columnas y valores del registro nuevo' }
+      },
+      required: ['table', 'values']
+    }
+  },
+  {
+    name: 'update_record',
+    description: 'Corrige campos de un registro existente por su id (primero búscalo con query_data). Sirve para arreglar datos mal dictados: litros, montos, fechas, nombres, aretes, notas, etc. No uses esto para cambiar stock de inventario (usa entradas/salidas) ni para vender animales (usa create_sale).',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        table: { type: 'string', enum: WRITABLE_TABLES as unknown as string[] },
+        id: { type: 'string', description: 'id (uuid) del registro' },
+        changes: { type: 'object', description: 'Solo las columnas a cambiar con su nuevo valor' }
+      },
+      required: ['table', 'id', 'changes']
+    }
+  },
+  {
+    name: 'delete_record',
+    description: 'Borra un registro por su id. SOLO después de que el usuario confirmó explícitamente el borrado en su último mensaje. No borra animales (usa update_animal_status) ni movimientos de inventario (registra el movimiento contrario).',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        table: { type: 'string', enum: DELETABLE_TABLES as unknown as string[] },
+        id: { type: 'string', description: 'id (uuid) del registro' }
+      },
+      required: ['table', 'id']
+    }
   }
 ]
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-async function findAnimal(identifier: string) {
-  const { data: byTag } = await supabase
+interface FoundAnimal {
+  id: string; ear_tag: string | null; name: string | null
+  species: 'cattle' | 'pig'; sex: string; status: string; stage: string | null
+}
+
+const norm = (s: string | null | undefined) =>
+  (s ?? '').trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+
+// Por voz llegan cosas como "la 7", "vaca uno", "la Eva": se busca primero
+// coincidencia exacta de arete, luego de nombre, luego arete numérico sin
+// ceros a la izquierda ("4" ≠ "0004" si existe un "4"), y solo al final
+// coincidencia parcial. Si la parcial da varios, se pide aclarar en vez de
+// adivinar (antes "1" podía caer en la 10, la 11 o AE-HE-0001).
+async function findAnimal(identifier: string): Promise<FoundAnimal | null> {
+  const q = norm(identifier).replace(/^(la|el|vaca|cerda|cerdo|toro|ternero|ternera|arete|numero|#)\s+/, '')
+  if (!q) return null
+
+  const { data } = await supabase
     .from('animals').select('id, ear_tag, name, species, sex, status, stage')
-    .ilike('ear_tag', `%${identifier}%`).limit(3)
-  if (byTag?.length) return byTag[0]
-  const { data: byName } = await supabase
-    .from('animals').select('id, ear_tag, name, species, sex, status, stage')
-    .ilike('name', `%${identifier}%`).limit(3)
-  return byName?.[0] ?? null
+  const animals = (data ?? []) as FoundAnimal[]
+  // Ante empates, preferir los activos
+  const pick = (list: FoundAnimal[]) => {
+    const active = list.filter(a => a.status === 'active')
+    return active.length ? active : list
+  }
+
+  const exactTag = pick(animals.filter(a => norm(a.ear_tag) === q))
+  if (exactTag.length === 1) return exactTag[0]
+
+  const exactName = pick(animals.filter(a => norm(a.name) === q))
+  if (exactName.length === 1) return exactName[0]
+
+  if (/^\d+$/.test(q)) {
+    const n = q.replace(/^0+/, '') || '0'
+    const numeric = pick(animals.filter(a => (norm(a.ear_tag).replace(/^0+/, '') || '0') === n))
+    if (numeric.length === 1) return numeric[0]
+  }
+
+  const partial = pick(animals.filter(a => norm(a.ear_tag).includes(q) || norm(a.name).includes(q)))
+  if (partial.length === 1) return partial[0]
+  if (partial.length > 1 || exactTag.length > 1 || exactName.length > 1) {
+    const options = (exactTag.length > 1 ? exactTag : exactName.length > 1 ? exactName : partial)
+      .slice(0, 8)
+      .map(a => [a.ear_tag?.trim(), a.name?.trim()].filter(Boolean).join(' · '))
+    throw new ToolError(`Hay varios animales que coinciden con "${identifier}": ${options.join('; ')}. Pregunta al usuario cuál es.`)
+  }
+  return null
 }
 
 async function findInventoryItem(name: string) {
@@ -640,7 +825,7 @@ async function getFarmSummary(): Promise<string> {
     tareas_pendientes: tasks.count ?? 0,
     productos_stock_bajo: lowStock,
     productos_agotados: outOfStock,
-    gastos_mes_actual_COP: totalExpenses,
+    gastos_mes_actual_USD: totalExpenses,
     leche_ultimos_7_dias_litros: totalMilk7d
   })
 }
@@ -790,7 +975,7 @@ async function getRecentExpenses(input: { days?: number }): Promise<string> {
     .gte('fecha', since).order('fecha', { ascending: false })
   if (error) return `Error: ${error.message}`
   const total = (data ?? []).reduce((s, g) => s + Number(g.monto), 0)
-  return JSON.stringify({ gastos: data ?? [], total_COP: total, periodo_dias: days })
+  return JSON.stringify({ gastos: data ?? [], total_USD: total, periodo_dias: days })
 }
 
 async function getExpenseStats(input: { days?: number; year_month?: string }): Promise<string> {
@@ -824,12 +1009,12 @@ async function getExpenseStats(input: { days?: number; year_month?: string }): P
   }
 
   const stats = Object.entries(byCategory)
-    .map(([categoria, v]) => ({ categoria, total_COP: v.total, registros: v.count }))
-    .sort((a, b) => b.total_COP - a.total_COP)
+    .map(([categoria, v]) => ({ categoria, total_USD: v.total, registros: v.count }))
+    .sort((a, b) => b.total_USD - a.total_USD)
 
   return JSON.stringify({
     periodo: input.year_month ?? `últimos ${input.days ?? 30} días`,
-    total_general_COP: grandTotal,
+    total_general_USD: grandTotal,
     por_categoria: stats
   })
 }
@@ -923,7 +1108,8 @@ async function registerAnimal(input: {
     species: input.species,
     sex: input.sex,
     birth_date: input.birth_date ?? null,
-    stage: input.stage ?? null,
+    // La columna stage solo admite etapas de cerdos (CHECK en la BD)
+    stage: input.species === 'pig' ? (input.stage ?? null) : null,
     mother_id,
     status: 'active',
     notes: input.notes ?? null
@@ -939,7 +1125,7 @@ async function registerAnimal(input: {
   }
 
   const label = input.ear_tag ? `arete ${input.ear_tag}` : (input.name ?? 'sin identificar')
-  return `✓ Animal registrado: ${input.species === 'cattle' ? 'bovino' : 'porcino'} ${input.sex === 'male' ? 'macho' : 'hembra'} — ${label}`
+  return `Animal registrado: ${input.species === 'cattle' ? 'bovino' : 'porcino'} ${input.sex === 'male' ? 'macho' : 'hembra'} — ${label}`
 }
 
 async function updateAnimalStatus(input: {
@@ -984,7 +1170,9 @@ async function registerCattleBirth(input: {
     species: 'cattle',
     sex: input.calf_sex,
     birth_date: input.birth_date,
-    stage: 'calf',
+    // stage solo admite etapas de cerdos: en bovinos va null (igual que el
+    // formulario de parto de la app). Con 'calf' el insert fallaba.
+    stage: null,
     mother_id: cow.id,
     father_name: fatherName,
     status: 'active',
@@ -1260,7 +1448,16 @@ async function registerMilkSession(input: {
     liters: input.liters, recorded_date: input.recorded_date, notes: input.notes ?? null
   })
   if (error) return `Error: ${error.message}`
-  return `✓ Producción registrada: ${input.liters} litros el ${input.recorded_date}.`
+
+  // Total del día: ayuda a notar si la misma leche se anotó dos veces
+  const { data: sameDay } = await supabase
+    .from('milk_sessions').select('liters').eq('recorded_date', input.recorded_date)
+  const sessions = sameDay ?? []
+  const dayTotal = sessions.reduce((s, r) => s + Number(r.liters), 0)
+  const dayInfo = sessions.length > 1
+    ? ` Ese día ya suma ${dayTotal} litros en ${sessions.length} ordeños (avisa al usuario por si se anotó dos veces).`
+    : ''
+  return `Producción registrada: ${input.liters} litros el ${input.recorded_date}.${dayInfo}`
 }
 
 async function registerMilkRecord(input: {
@@ -1416,8 +1613,7 @@ async function createExpense(input: {
     categoria: input.categoria, fecha: input.fecha, foto_url: null
   })
   if (error) return `Error: ${error.message}`
-  const fmt = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(input.monto)
-  return `✓ Gasto registrado: ${input.descripcion} — ${fmt}`
+  return `Gasto registrado: ${input.descripcion} — ${formatUSD(input.monto)} el ${input.fecha}`
 }
 
 async function getRecentSales(input: { days?: number }): Promise<string> {
@@ -1428,7 +1624,7 @@ async function getRecentSales(input: { days?: number }): Promise<string> {
     .gte('fecha', since).order('fecha', { ascending: false })
   if (error) return `Error: ${error.message}`
   const total = (data ?? []).reduce((s, v) => s + Number(v.monto), 0)
-  return JSON.stringify({ ventas: data ?? [], total_COP: total, periodo_dias: days })
+  return JSON.stringify({ ventas: data ?? [], total_USD: total, periodo_dias: days })
 }
 
 async function getFinanceSummary(input: { days?: number; year_month?: string }): Promise<string> {
@@ -1466,10 +1662,10 @@ async function getFinanceSummary(input: { days?: number; year_month?: string }):
 
   return JSON.stringify({
     periodo: input.year_month ?? `últimos ${input.days ?? 30} días`,
-    ingresos_COP: ingresos,
+    ingresos_USD: ingresos,
     ingresos_por_tipo: porTipo,
-    gastos_COP: gastos,
-    balance_COP: ingresos - gastos
+    gastos_USD: gastos,
+    balance_USD: ingresos - gastos
   })
 }
 
@@ -1501,8 +1697,7 @@ async function createSale(input: {
     comprador: input.comprador ?? null, animal_id: animalId
   })
   if (error) return `Error: ${error.message}`
-  const fmt = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(input.monto)
-  return `✓ Venta registrada: ${input.descripcion} — ${fmt}${animalInfo}`
+  return `Venta registrada: ${input.descripcion} — ${formatUSD(input.monto)}${animalInfo}`
 }
 
 async function createTaskFn(input: {
@@ -1555,64 +1750,306 @@ async function completeTask(input: { title_search: string }): Promise<string> {
   return `✓ Tarea completada: "${task.title}"`
 }
 
+async function removeInventoryStock(input: {
+  item_name: string; quantity: number; date?: string; notes?: string
+}): Promise<string> {
+  const item = await findInventoryItem(input.item_name)
+  if (!item) return `No encontré producto "${input.item_name}" en el inventario.`
+  if (input.quantity <= 0) return 'La cantidad debe ser mayor que cero.'
+  if (item.quantity < input.quantity) {
+    return `Stock insuficiente: hay ${item.quantity} ${item.unit} de ${item.name} y quieres sacar ${input.quantity}.`
+  }
+  await createMovement({
+    item_id: item.id, type: 'out', quantity: input.quantity,
+    date: input.date ?? today(), notes: input.notes ?? null
+  })
+  return `Salida registrada: ${input.quantity} ${item.unit} de ${item.name}. Quedan ${item.quantity - input.quantity} ${item.unit}.`
+}
+
+// ─── Paneles de la app (mismos cálculos que las pantallas) ───────────────────
+
+async function getWorkList(): Promise<string> {
+  const lists = await fetchWorkLists()
+  const urg: Record<string, string> = { overdue: 'atrasado', today: 'hoy', soon: 'próximo' }
+  const out = lists
+    .filter(l => l.items.length)
+    .map(l => ({
+      lista: l.title,
+      items: l.items.map(i => `${i.label}: ${i.detail} (${urg[i.urgency] ?? i.urgency})`)
+    }))
+  return out.length ? JSON.stringify(out) : 'No hay nada pendiente en las listas de trabajo.'
+}
+
+async function getAlerts(): Promise<string> {
+  const alerts = await fetchAlerts()
+  if (!alerts.length) return 'No hay alertas activas.'
+  return JSON.stringify(alerts.map(a => ({ nivel: a.level, titulo: a.title, detalle: a.description })))
+}
+
+async function getReproductionIndicators(): Promise<string> {
+  const d = await fetchReproductionData()
+  return JSON.stringify({
+    promedios_hato: d.herd,
+    vacas: d.cows.map(c => ({
+      vaca: c.label, preñada: c.isPregnant, ultimo_parto: c.lastBirth, partos: c.birthCount,
+      dias_abiertos: c.diasAbiertos, sigue_vacia: c.diasAbiertosEnCurso,
+      intervalo_partos_dias: c.intervaloPartos, servicios: c.servicios
+    })),
+    cerdas: d.sows.map(s => ({
+      cerda: s.label, preñada: s.isPregnant, ultima_camada: s.lastLitter, camadas: s.litterCount,
+      camadas_por_año: s.camadasPorAno, nacidos_vivos_prom: s.nacidosVivosProm,
+      destetados_prom: s.destetadosProm, destetados_por_año: s.destetadosPorAno
+    })),
+    sementales: d.sires.map(s => ({
+      nombre: s.name, servicios: s.servicios, preñadas: s.prenadas,
+      fallidas: s.fallidas, pendientes: s.pendientes, tasa_preñez_pct: s.tasa
+    }))
+  })
+}
+
+async function getGoals(): Promise<string> {
+  const { metas, costos } = await fetchMetas()
+  const nivel: Record<string, string> = { good: 'bien', warn: 'atención', bad: 'mal', nodata: 'sin datos' }
+  return JSON.stringify({
+    metas: metas.map(m => ({ meta: m.title, valor: m.display, objetivo: m.metaLabel, estado: nivel[m.level] ?? m.level })),
+    costos_USD: costos
+  })
+}
+
+// ─── Acceso general a la base de datos ───────────────────────────────────────
+
+const MAX_ROWS = 300
+const MAX_STATS_ROWS = 5000
+
+interface QueryFilter { column: string; op: string; value: unknown }
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function applyFilters(query: any, filters: QueryFilter[] | undefined) {
+  for (const f of filters ?? []) {
+    switch (f.op) {
+      case 'eq': query = query.eq(f.column, f.value); break
+      case 'neq': query = query.neq(f.column, f.value); break
+      case 'gt': query = query.gt(f.column, f.value); break
+      case 'gte': query = query.gte(f.column, f.value); break
+      case 'lt': query = query.lt(f.column, f.value); break
+      case 'lte': query = query.lte(f.column, f.value); break
+      case 'ilike': query = query.ilike(f.column, `%${String(f.value).replace(/^%|%$/g, '')}%`); break
+      case 'is': query = query.is(f.column, f.value as null | boolean); break
+      case 'in': query = query.in(f.column, Array.isArray(f.value) ? f.value : [f.value]); break
+      default: throw new ToolError(`Operador de filtro no válido: ${f.op}`)
+    }
+  }
+  return query
+}
+
+function groupKey(row: Record<string, unknown>, groupBy: string): string {
+  const [mode, col] = groupBy.includes(':') ? groupBy.split(':') : ['col', groupBy]
+  const v = row[col]
+  if (v == null) return '(vacío)'
+  const s = String(v)
+  if (mode === 'month') return s.slice(0, 7)
+  if (mode === 'week') {
+    // Lunes de la semana de la fecha
+    const d = new Date(`${s.slice(0, 10)}T12:00:00`)
+    const offset = (d.getDay() + 6) % 7
+    return addDaysToDate(s.slice(0, 10), -offset)
+  }
+  return s
+}
+
+function computeStats(rows: Record<string, unknown>[], cols: string[]) {
+  const out: Record<string, unknown> = { filas: rows.length }
+  for (const c of cols) {
+    const nums = rows.map(r => Number(r[c])).filter(n => Number.isFinite(n))
+    if (!nums.length) { out[c] = 'sin valores numéricos'; continue }
+    const sum = nums.reduce((s, n) => s + n, 0)
+    out[c] = {
+      suma: Math.round(sum * 100) / 100,
+      promedio: Math.round((sum / nums.length) * 100) / 100,
+      minimo: Math.min(...nums),
+      maximo: Math.max(...nums)
+    }
+  }
+  return out
+}
+
+async function queryData(input: {
+  table: string; select?: string; filters?: QueryFilter[]
+  order_by?: string; ascending?: boolean; limit?: number
+  stats_columns?: string[]; group_by?: string
+}): Promise<string> {
+  if (!(QUERYABLE_TABLES as readonly string[]).includes(input.table)) {
+    return `Tabla no permitida: ${input.table}`
+  }
+
+  // Estadísticas: se calculan sobre todas las filas que cumplen los filtros
+  if (input.stats_columns?.length) {
+    const statsCols = input.stats_columns
+    const groupCol = input.group_by?.includes(':') ? input.group_by.split(':')[1] : input.group_by
+    const cols = Array.from(new Set([...statsCols, ...(groupCol ? [groupCol] : [])]))
+    let q = supabase.from(input.table as 'animals').select(cols.join(','), { count: 'exact' })
+    q = applyFilters(q, input.filters)
+    const { data, error, count } = await q.limit(MAX_STATS_ROWS)
+    if (error) return `Error: ${error.message}`
+    const rows = (data ?? []) as unknown as Record<string, unknown>[]
+    const aviso = (count ?? rows.length) > rows.length
+      ? { aviso: `solo se usaron ${rows.length} de ${count} filas` } : {}
+
+    if (!input.group_by) return JSON.stringify({ ...computeStats(rows, statsCols), ...aviso })
+
+    const groups = new Map<string, Record<string, unknown>[]>()
+    for (const r of rows) {
+      const k = groupKey(r, input.group_by)
+      const arr = groups.get(k) ?? []
+      arr.push(r)
+      groups.set(k, arr)
+    }
+    const grupos = Array.from(groups.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([grupo, rs]) => ({ grupo, ...computeStats(rs, statsCols) }))
+    return JSON.stringify({ agrupado_por: input.group_by, grupos, ...aviso })
+  }
+
+  const limit = Math.min(Math.max(1, input.limit ?? 50), MAX_ROWS)
+  let q = supabase.from(input.table as 'animals').select(input.select?.trim() || '*', { count: 'exact' })
+  q = applyFilters(q, input.filters)
+  // Las tablas de detalle no tienen created_at
+  const orderCol = input.order_by ?? (input.table.endsWith('_details') ? undefined : 'created_at')
+  if (orderCol) q = q.order(orderCol, { ascending: input.ascending ?? false })
+  const { data, error, count } = await q.limit(limit)
+  if (error) return `Error: ${error.message}`
+  const rows = data ?? []
+  return JSON.stringify({ total_que_cumplen: count ?? rows.length, devueltas: rows.length, filas: rows })
+}
+
+async function insertRecord(input: { table: string; values: Record<string, unknown> }): Promise<string> {
+  if (!(INSERTABLE_TABLES as readonly string[]).includes(input.table)) {
+    return `No se puede crear en ${input.table} con esta herramienta; usa la herramienta específica.`
+  }
+  const { data, error } = await supabase.from(input.table as 'vaccines').insert(input.values as never).select().single()
+  if (error) return `Error: ${error.message}`
+  return `Registro creado en ${input.table}: ${JSON.stringify(data)}`
+}
+
+async function updateRecord(input: { table: string; id: string; changes: Record<string, unknown> }): Promise<string> {
+  if (!(WRITABLE_TABLES as readonly string[]).includes(input.table)) {
+    return `No se puede modificar ${input.table}.`
+  }
+  const changes = { ...input.changes }
+  delete changes.id
+  delete changes.created_at
+  if (input.table === 'inventory_items' && 'quantity' in changes) {
+    return 'El stock no se cambia directo: registra una entrada (add_inventory_stock) o una salida (remove_inventory_stock).'
+  }
+  if (!Object.keys(changes).length) return 'No hay cambios que aplicar.'
+
+  const { data: before } = await supabase.from(input.table as 'animals').select('*').eq('id', input.id).maybeSingle()
+  if (!before) return `No encontré el registro ${input.id} en ${input.table}.`
+  const prev = before as Record<string, unknown>
+  if (input.table === 'animals' && changes.stage != null && prev.species === 'cattle') {
+    return 'La etapa (stage) solo aplica a cerdos.'
+  }
+  const { data, error } = await supabase.from(input.table as 'animals').update(changes as never).eq('id', input.id).select().single()
+  if (error) return `Error: ${error.message}`
+  const next = data as Record<string, unknown>
+  const changed = Object.keys(changes).map(k => `${k}: ${JSON.stringify(prev[k])} → ${JSON.stringify(next[k])}`)
+  return `Registro corregido en ${input.table}. ${changed.join('; ')}`
+}
+
+async function deleteRecord(input: { table: string; id: string }): Promise<string> {
+  if (!(DELETABLE_TABLES as readonly string[]).includes(input.table)) {
+    return `No se puede borrar en ${input.table}.`
+  }
+  const { data: before } = await supabase.from(input.table as 'tasks').select('*').eq('id', input.id).maybeSingle()
+  if (!before) return `No encontré el registro ${input.id} en ${input.table}.`
+  const { error } = await supabase.from(input.table as 'tasks').delete().eq('id', input.id)
+  if (error) return `Error: ${error.message}`
+  return `Registro borrado de ${input.table}: ${JSON.stringify(before)}`
+}
+
 // ─── Router ───────────────────────────────────────────────────────────────────
 
-async function executeTool(name: string, input: Record<string, unknown>): Promise<string> {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnyInput = any
+
+const HANDLERS: Record<string, (input: AnyInput) => Promise<string>> = {
+  // Consultas
+  get_farm_summary:            () => getFarmSummary(),
+  get_animals:                 getAnimals,
+  get_animal_detail:           getAnimalDetail,
+  get_litters:                 getLitters,
+  get_calf_births:             getCalfBirths,
+  get_inventory:               () => getInventory(),
+  get_inventory_movements:     getInventoryMovements,
+  get_pending_tasks:           () => getPendingTasks(),
+  get_all_tasks:               getAllTasks,
+  get_recent_expenses:         getRecentExpenses,
+  get_expense_stats:           getExpenseStats,
+  get_milk_production:         getMilkProduction,
+  get_heat_records:            getHeatRecords,
+  get_vaccination_history:     getVaccinationHistory,
+  get_milk_withdrawals:        () => getMilkWithdrawals(),
+  get_weights:                 getWeights,
+  get_recent_sales:            getRecentSales,
+  get_finance_summary:         getFinanceSummary,
+  get_work_list:               () => getWorkList(),
+  get_alerts:                  () => getAlerts(),
+  get_reproduction_indicators: () => getReproductionIndicators(),
+  get_goals:                   () => getGoals(),
+  query_data:                  queryData,
+  // Acciones
+  register_weight:             registerWeight,
+  register_bcs:                registerBcs,
+  register_weaning:            registerWeaning,
+  register_animal:             registerAnimal,
+  update_animal_status:        updateAnimalStatus,
+  register_cattle_birth:       registerCattleBirth,
+  register_litter:             registerLitter,
+  apply_batch_vaccination:     applyBatchVaccination,
+  apply_single_vaccination:    applySingleVaccination,
+  add_inventory_stock:         addInventoryStock,
+  remove_inventory_stock:      removeInventoryStock,
+  register_milk_session:       registerMilkSession,
+  register_milk_record:        registerMilkRecord,
+  register_heat:               registerHeat,
+  register_insemination:       registerInsemination,
+  update_pregnancy:            updatePregnancy,
+  create_expense:              createExpense,
+  create_sale:                 createSale,
+  create_task:                 createTaskFn,
+  update_task:                 updateTaskFn,
+  complete_task:               completeTask,
+  insert_record:               insertRecord,
+  update_record:               updateRecord,
+  delete_record:               deleteRecord,
+}
+
+// El modelo a veces cambia mayúsculas en el nombre de la herramienta
+function resolveHandler(name: string) {
+  return HANDLERS[name] ?? HANDLERS[name.toLowerCase()]
+}
+
+async function executeTool(name: string, input: Record<string, unknown>): Promise<{ content: string; isError: boolean }> {
+  const handler = resolveHandler(name)
+  if (!handler) {
+    return { content: `Herramienta desconocida: ${name}. Las disponibles son: ${Object.keys(HANDLERS).join(', ')}`, isError: true }
+  }
   try {
-    switch (name) {
-      // Consultas
-      case 'get_farm_summary':         return await getFarmSummary()
-      case 'get_animals':              return await getAnimals(input as Parameters<typeof getAnimals>[0])
-      case 'get_animal_detail':        return await getAnimalDetail(input as Parameters<typeof getAnimalDetail>[0])
-      case 'get_litters':              return await getLitters(input as Parameters<typeof getLitters>[0])
-      case 'get_calf_births':          return await getCalfBirths(input as Parameters<typeof getCalfBirths>[0])
-      case 'get_inventory':            return await getInventory()
-      case 'get_inventory_movements':  return await getInventoryMovements(input as Parameters<typeof getInventoryMovements>[0])
-      case 'get_pending_tasks':        return await getPendingTasks()
-      case 'get_all_tasks':            return await getAllTasks(input as Parameters<typeof getAllTasks>[0])
-      case 'get_recent_expenses':      return await getRecentExpenses(input as Parameters<typeof getRecentExpenses>[0])
-      case 'get_expense_stats':        return await getExpenseStats(input as Parameters<typeof getExpenseStats>[0])
-      case 'get_milk_production':      return await getMilkProduction(input as Parameters<typeof getMilkProduction>[0])
-      case 'get_heat_records':         return await getHeatRecords(input as Parameters<typeof getHeatRecords>[0])
-      case 'get_vaccination_history':  return await getVaccinationHistory(input as Parameters<typeof getVaccinationHistory>[0])
-      case 'get_milk_withdrawals':     return await getMilkWithdrawals()
-      case 'get_weights':              return await getWeights(input as Parameters<typeof getWeights>[0])
-      case 'register_weight':          return await registerWeight(input as Parameters<typeof registerWeight>[0])
-      case 'register_bcs':             return await registerBcs(input as Parameters<typeof registerBcs>[0])
-      case 'register_weaning':         return await registerWeaning(input as Parameters<typeof registerWeaning>[0])
-      // Acciones animales
-      case 'register_animal':          return await registerAnimal(input as Parameters<typeof registerAnimal>[0])
-      case 'update_animal_status':     return await updateAnimalStatus(input as Parameters<typeof updateAnimalStatus>[0])
-      case 'register_cattle_birth':    return await registerCattleBirth(input as Parameters<typeof registerCattleBirth>[0])
-      case 'register_litter':          return await registerLitter(input as Parameters<typeof registerLitter>[0])
-      // Acciones vacunas
-      case 'apply_batch_vaccination':  return await applyBatchVaccination(input as Parameters<typeof applyBatchVaccination>[0])
-      case 'apply_single_vaccination': return await applySingleVaccination(input as Parameters<typeof applySingleVaccination>[0])
-      // Acciones inventario
-      case 'add_inventory_stock':      return await addInventoryStock(input as Parameters<typeof addInventoryStock>[0])
-      // Acciones leche
-      case 'register_milk_session':    return await registerMilkSession(input as Parameters<typeof registerMilkSession>[0])
-      case 'register_milk_record':     return await registerMilkRecord(input as Parameters<typeof registerMilkRecord>[0])
-      // Acciones porcinos
-      case 'register_heat':            return await registerHeat(input as Parameters<typeof registerHeat>[0])
-      case 'register_insemination':    return await registerInsemination(input as Parameters<typeof registerInsemination>[0])
-      case 'update_pregnancy':         return await updatePregnancy(input as Parameters<typeof updatePregnancy>[0])
-      // Acciones gastos
-      case 'create_expense':           return await createExpense(input as Parameters<typeof createExpense>[0])
-      // Ventas
-      case 'get_recent_sales':         return await getRecentSales(input as Parameters<typeof getRecentSales>[0])
-      case 'get_finance_summary':      return await getFinanceSummary(input as Parameters<typeof getFinanceSummary>[0])
-      case 'create_sale':              return await createSale(input as Parameters<typeof createSale>[0])
-      // Acciones tareas
-      case 'create_task':              return await createTaskFn(input as Parameters<typeof createTaskFn>[0])
-      case 'update_task':              return await updateTaskFn(input as Parameters<typeof updateTaskFn>[0])
-      case 'complete_task':            return await completeTask(input as Parameters<typeof completeTask>[0])
-      default: return `Herramienta desconocida: ${name}`
-    }
+    const content = await handler(input ?? {})
+    return { content, isError: /^Error/.test(content) }
   } catch (e) {
-    return `Error en ${name}: ${(e as Error).message}`
+    if (e instanceof ToolError) return { content: e.message, isError: false }
+    return { content: `Error en ${name}: ${(e as Error).message}`, isError: true }
   }
 }
+
+// Herramientas que cambian datos: se muestran como "acciones" en el chat
+// para que la persona vea qué quedó guardado.
+const isWriteTool = (name: string) =>
+  /^(register_|create_|update_|complete_|apply_|add_|remove_|insert_|delete_)/.test(name)
+
+// Resultados que no guardaron nada (no encontrado, sin stock, ambiguo…)
+const NOT_DONE = /^(Error|No |Stock insuficiente|Hay varios|La |El |Tabla no|Herramienta desconocida|Operador)/
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
@@ -1621,36 +2058,71 @@ export interface ConversationMessage {
   content: string
 }
 
+export interface AssistantAction {
+  ok: boolean
+  summary: string
+}
+
+export interface AssistantReply {
+  text: string
+  actions: AssistantAction[]
+}
+
+const MAX_STEPS = 12
+
+// El historial entre preguntas viaja solo como texto (sin bloques de
+// herramientas ni de razonamiento): más barato, y no hay bloques viejos que
+// reenviar. Dentro de una misma pregunta la conversación solo se agrega
+// (append-only), devolviendo cada respuesta tal cual llegó.
 export async function sendMessage(
   history: ConversationMessage[],
   onToolUse?: (label: string) => void
-): Promise<string> {
-  let current: ApiMessage[] = history.map(m => ({ role: m.role, content: m.content }))
-
-  for (let i = 0; i < 10; i++) {
-    const response = await callClaude(current)
-
-    if (response.stop_reason === 'end_turn') {
-      const text = response.content.find(b => b.type === 'text') as TextBlock | undefined
-      return text?.text ?? ''
-    }
-
-    if (response.stop_reason === 'tool_use') {
-      const toolBlocks = response.content.filter(b => b.type === 'tool_use') as ToolUseBlock[]
-      current.push({ role: 'assistant', content: response.content })
-
-      const results: ToolResultBlock[] = []
-      for (const tb of toolBlocks) {
-        onToolUse?.(TOOL_LABELS[tb.name] ?? `Ejecutando ${tb.name}...`)
-        const result = await executeTool(tb.name, tb.input)
-        results.push({ type: 'tool_result', tool_use_id: tb.id, content: result })
-      }
-      current.push({ role: 'user', content: results })
-      continue
-    }
-
-    break
+): Promise<AssistantReply> {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    throw new Error('Sin conexión a internet. El asistente necesita señal; mientras tanto puedes registrar desde las pantallas de la app, que sí guardan sin internet.')
   }
 
-  return 'No pude completar la solicitud.'
+  const current: ApiMessage[] = history.map(m => ({ role: m.role, content: m.content }))
+  const actions: AssistantAction[] = []
+  const textOf = (blocks: ContentBlock[]) =>
+    blocks.filter((b): b is TextBlock => b.type === 'text').map(b => b.text).join('\n').trim()
+
+  for (let i = 0; i < MAX_STEPS; i++) {
+    const response = await callClaude(current)
+
+    switch (response.stop_reason) {
+      case 'tool_use': {
+        const toolBlocks = response.content.filter((b): b is ToolUseBlock => b.type === 'tool_use')
+        current.push({ role: 'assistant', content: response.content })
+
+        // Las herramientas de una misma vuelta son independientes: en paralelo
+        onToolUse?.(toolBlocks.map(tb => TOOL_LABELS[tb.name] ?? `Ejecutando ${tb.name}...`)[0])
+        const results = await Promise.all(toolBlocks.map(async (tb) => {
+          const r = await executeTool(tb.name, tb.input)
+          if (isWriteTool(tb.name)) {
+            actions.push({ ok: !r.isError && !NOT_DONE.test(r.content), summary: r.content.split('\n')[0].slice(0, 160) })
+          }
+          const block: ToolResultBlock = { type: 'tool_result', tool_use_id: tb.id, content: r.content }
+          if (r.isError) block.is_error = true
+          return block
+        }))
+        // Todos los resultados juntos en un solo mensaje
+        current.push({ role: 'user', content: results })
+        continue
+      }
+      case 'pause_turn':
+        current.push({ role: 'assistant', content: response.content })
+        continue
+      case 'max_tokens': {
+        const partial = textOf(response.content)
+        return { text: partial ? `${partial}…` : 'La respuesta salió muy larga y se cortó. Pregúntame algo más puntual.', actions }
+      }
+      case 'refusal':
+        return { text: 'No puedo ayudar con eso. Intenta decirlo de otra forma.', actions }
+      default:
+        return { text: textOf(response.content), actions }
+    }
+  }
+
+  return { text: 'No alcancé a terminar: eran demasiados pasos. Divide la pregunta en partes más pequeñas.', actions }
 }

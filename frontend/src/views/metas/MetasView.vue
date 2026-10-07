@@ -29,7 +29,7 @@ const levelStyles: Record<string, { card: string; dot: string; label: string }> 
 }
 
 function fmtCop(n: number) {
-  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n)
+  return new Intl.NumberFormat('es-EC', { style: 'currency', currency: 'USD' }).format(n)
 }
 </script>
 
