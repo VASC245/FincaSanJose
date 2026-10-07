@@ -237,6 +237,15 @@ const SpeechRecognition =
 
 let recognition: any = null
 let silentTries = 0
+// Algunos celulares (iPhone, varios Android) no cierran solos el
+// reconocimiento ni marcan el texto como final: al quedar 1,5 s sin
+// voz nueva se corta y se envía lo entendido, sin tocar la pantalla.
+const SILENCE_MS = 1500
+let silenceTimer: ReturnType<typeof setTimeout> | null = null
+
+function clearSilenceTimer() {
+  if (silenceTimer) { clearTimeout(silenceTimer); silenceTimer = null }
+}
 
 function setupRecognition() {
   if (!SpeechRecognition) return
@@ -246,28 +255,39 @@ function setupRecognition() {
   recognition.interimResults = true
 
   recognition.onresult = (event: any) => {
+    // Se reconstruye todo el texto en cada evento: así no se pierde ni se
+    // duplica nada aunque el navegador reenvíe resultados anteriores
     let interim = '', final = ''
-    for (let i = event.resultIndex; i < event.results.length; i++) {
+    for (let i = 0; i < event.results.length; i++) {
       const t = event.results[i][0].transcript
       if (event.results[i].isFinal) final += t
       else interim += t
     }
-    interimText.value = interim
-    if (final) input.value = (input.value + ' ' + final).trim()
+    input.value = final.trim()
+    interimText.value = interim.trim()
+
+    clearSilenceTimer()
+    const rec = recognition
+    silenceTimer = setTimeout(() => {
+      try { rec?.stop() } catch { /* ya detuvo */ }
+    }, SILENCE_MS)
   }
 
   recognition.onend = () => {
+    clearSilenceTimer()
     isListening.value = false
+    // Si el texto nunca llegó como "final", se usa lo último que se entendió
+    const pendingText = (input.value + ' ' + interimText.value).trim()
     interimText.value = ''
-    const pendingText = input.value.trim()
     recognition = null  // la instancia no puede reutilizarse; se crea una nueva al siguiente uso
     if (pendingText) {
       silentTries = 0
-      send()
+      send(pendingText)
     }
   }
 
   recognition.onerror = (event: any) => {
+    clearSilenceTimer()
     isListening.value = false
     interimText.value = ''
     recognition = null
@@ -300,7 +320,8 @@ function setupRecognition() {
 
 function toggleMic() {
   if (isListening.value) {
-    stopListening()
+    // Tocar el micrófono mientras escucha = "ya terminé": se envía lo dicho
+    stopListening(false)
     handsFree.value = false
   } else {
     silentTries = 0
@@ -325,10 +346,20 @@ function startListening() {
   }
 }
 
-function stopListening() {
+// discard=true (cerrar, escribir a mano): se corta sin enviar nada.
+// discard=false: se cierra normal y onend envía lo que se alcanzó a decir.
+function stopListening(discard = true) {
+  clearSilenceTimer()
   isListening.value = false
-  interimText.value = ''
-  if (recognition) {
+  if (!recognition) return
+  if (discard) {
+    recognition.onresult = null
+    recognition.onend = null
+    recognition.onerror = null
+    try { recognition.abort() } catch { /* ya detuvo */ }
+    recognition = null
+    interimText.value = ''
+  } else {
     try { recognition.stop() } catch { /* ya detuvo */ }
   }
 }
