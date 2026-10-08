@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
-import { Menu } from 'lucide-vue-next'
+import { Menu, ScanLine } from 'lucide-vue-next'
 import AlertsPanel from '@/components/shared/AlertsPanel.vue'
 import NotificationBell from '@/components/shared/NotificationBell.vue'
 
@@ -25,6 +25,16 @@ const title = computed(() => (route.meta?.title as string) ?? 'Finca')
       <span class="text-sm text-gray-500 hidden sm:block">
         {{ new Date().toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long' }) }}
       </span>
+      <!-- Escanear siempre a un toque, en cualquier pantalla -->
+      <RouterLink
+        v-if="route.name !== 'scan'"
+        to="/scan"
+        class="inline-flex items-center gap-1.5 rounded-lg bg-primary-600 px-3 min-h-[40px] text-sm font-medium text-white hover:bg-primary-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2"
+        aria-label="Escanear animal"
+      >
+        <ScanLine class="w-4 h-4" aria-hidden="true" />
+        <span class="hidden sm:inline">Escanear</span>
+      </RouterLink>
       <NotificationBell />
       <AlertsPanel />
     </div>

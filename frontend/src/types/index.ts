@@ -18,6 +18,7 @@ export interface Animal {
   father_id: string | null
   mother_name: string | null   // madre no registrada (texto libre)
   father_name: string | null   // padre no registrado (ej. toro de la pajuela)
+  rfid_tag?: string | null     // chip RFID (arete electrónico), sin espacios
   notes: string | null
   created_at: string
   updated_at: string

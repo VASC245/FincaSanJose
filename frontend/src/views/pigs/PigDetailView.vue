@@ -7,6 +7,7 @@ import BaseButton from '@/components/shared/BaseButton.vue'
 import BaseInput from '@/components/shared/BaseInput.vue'
 import PregnancyBadge from '@/components/cattle/PregnancyBadge.vue'
 import ParentsEditor from '@/components/animals/ParentsEditor.vue'
+import AnimalTagCard from '@/components/animals/AnimalTagCard.vue'
 import VaccinationList from '@/components/animals/VaccinationList.vue'
 import LitterList from '@/components/pigs/LitterList.vue'
 import BcsSection from '@/components/animals/BcsSection.vue'
@@ -406,6 +407,8 @@ function daysLabel(days: number): string {
       </div>
 
       <ParentsEditor :animal="animal" :mother="mother" :father="father" @updated="onParentsUpdated" />
+
+      <AnimalTagCard :animal="animal" @updated="animal = $event" />
 
       <!-- Gestación e inseminaciones (hembras) -->
       <div v-if="isFemale" class="card space-y-4">

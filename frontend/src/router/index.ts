@@ -13,6 +13,25 @@ const router = createRouter({
           component: () => import('@/views/DashboardView.vue'),
           meta: { title: 'Dashboard' }
         },
+        // Escanear animal (QR / chip RFID / arete)
+        {
+          path: 'scan',
+          name: 'scan',
+          component: () => import('@/views/scan/ScanView.vue'),
+          meta: { title: 'Escanear' }
+        },
+        {
+          path: 'a/:id',
+          name: 'animal-qr',
+          component: () => import('@/views/scan/AnimalRedirectView.vue'),
+          meta: { title: 'Animal' }
+        },
+        {
+          path: 'etiquetas',
+          name: 'etiquetas',
+          component: () => import('@/views/scan/LabelsView.vue'),
+          meta: { title: 'Etiquetas QR' }
+        },
         // Trabajo del día
         {
           path: 'trabajo',

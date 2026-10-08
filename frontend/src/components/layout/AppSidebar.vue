@@ -16,7 +16,9 @@ import {
   CalendarCheck,
   HeartHandshake,
   Scale,
-  Target
+  Target,
+  ScanLine,
+  QrCode
 } from 'lucide-vue-next'
 
 defineProps<{ open: boolean }>()
@@ -26,6 +28,7 @@ const route = useRoute()
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
+  { to: '/scan', label: 'Escanear animal', icon: ScanLine },
   { to: '/trabajo', label: 'Qué toca hoy', icon: CalendarCheck },
   { to: '/cattle', label: 'Bovinos', icon: Beef },
   { to: '/cattle/milk', label: 'Leche', icon: Milk },
@@ -37,7 +40,8 @@ const navItems = [
   { to: '/inventory', label: 'Inventario', icon: Package },
   { to: '/tasks', label: 'Tareas', icon: ClipboardList },
   { to: '/gastos', label: 'Gastos', icon: Receipt },
-  { to: '/ventas', label: 'Ventas', icon: HandCoins }
+  { to: '/ventas', label: 'Ventas', icon: HandCoins },
+  { to: '/etiquetas', label: 'Etiquetas QR', icon: QrCode }
 ]
 
 function isActive(path: string) {

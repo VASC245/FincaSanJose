@@ -13,6 +13,7 @@ import { upsertCattleDetail } from '@/services/animalService'
 import { fetchMilkRecords, createMilkRecord } from '@/services/milkService'
 import MilkCorrectionForm from '@/components/cattle/MilkCorrectionForm.vue'
 import ParentsEditor from '@/components/animals/ParentsEditor.vue'
+import AnimalTagCard from '@/components/animals/AnimalTagCard.vue'
 import {
   fetchInseminationRecords,
   createInseminationRecord,
@@ -442,6 +443,8 @@ const statusLabel: Record<string, string> = {
       </div>
 
       <ParentsEditor :animal="animal" :mother="mother" :father="father" @updated="onParentsUpdated" />
+
+      <AnimalTagCard :animal="animal" @updated="animal = $event" />
 
       <!-- Inseminación / Gestación (hembras) -->
       <div v-if="isFemale" class="card space-y-4">
