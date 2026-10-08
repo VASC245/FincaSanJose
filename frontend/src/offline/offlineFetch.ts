@@ -33,16 +33,39 @@ function headersToObject(h: Headers): Record<string, string> {
 }
 
 /** Genera id en el cliente para inserts sin id (no aplica a upserts). */
-function injectIds(bodyText: string): string {
+function injectIds(bodyText: string): { body: string; injected: boolean } {
   try {
     const data = JSON.parse(bodyText)
-    const inject = (row: unknown) =>
-      row && typeof row === 'object' && !(row as Record<string, unknown>).id
-        ? { id: uuid(), ...(row as Record<string, unknown>) }
-        : row
-    return JSON.stringify(Array.isArray(data) ? data.map(inject) : inject(data))
+    let injected = false
+    const inject = (row: unknown) => {
+      if (row && typeof row === 'object' && !Array.isArray(row) && !(row as Record<string, unknown>).id) {
+        injected = true
+        return { id: uuid(), ...(row as Record<string, unknown>) }
+      }
+      return row
+    }
+    const out = Array.isArray(data) ? data.map(inject) : inject(data)
+    return injected ? { body: JSON.stringify(out), injected } : { body: bodyText, injected }
   } catch {
-    return bodyText
+    return { body: bodyText, injected: false }
+  }
+}
+
+/**
+ * En inserts de varias filas postgrest-js añade ?columns="a","b" y PostgREST
+ * ignora cualquier campo que no esté en esa lista — hay que agregar "id".
+ */
+function ensureIdColumn(url: string): string {
+  try {
+    const u = new URL(url)
+    const cols = u.searchParams.get('columns')
+    if (cols == null) return url
+    const list = cols.split(',').map((c) => c.trim()).filter(Boolean)
+    if (list.includes('"id"') || list.includes('id')) return url
+    u.searchParams.set('columns', ['"id"', ...list].join(','))
+    return u.toString()
+  } catch {
+    return url
   }
 }
 
@@ -128,10 +151,26 @@ export async function offlineFetch(
   try { bodyText = await req.clone().text() } catch { bodyText = null }
   if (bodyText === '') bodyText = null
 
+  // Los INSERT llevan id generado aquí ANTES del primer intento: si el servidor
+  // alcanza a guardar pero la respuesta se pierde (timeout), el reenvío desde la
+  // cola choca con el mismo id (409) en vez de crear un duplicado.
+  const isUpsert = (req.headers.get('prefer') ?? '').includes('resolution=')
+  let finalBody = bodyText
+  let finalUrl = req.url
+  let sendReq = req
+  if (method === 'POST' && bodyText && !isUpsert) {
+    const { body, injected } = injectIds(bodyText)
+    if (injected) {
+      finalBody = body
+      finalUrl = ensureIdColumn(req.url)
+      sendReq = new Request(finalUrl, { method, headers: req.headers, body: finalBody })
+    }
+  }
+
   // Con señal (aparente): intentar contra el servidor
   if (offlineState.online) {
     try {
-      return await fetchWithTimeout(req.clone())
+      return await fetchWithTimeout(sendReq.clone())
     } catch {
       // la red falló a mitad de uso — cae a la cola offline
       offlineState.online = navigator.onLine
@@ -139,12 +178,9 @@ export async function offlineFetch(
   }
 
   // Sin señal: encolar y responder como si hubiera funcionado
-  const isUpsert = (req.headers.get('prefer') ?? '').includes('resolution=')
-  const finalBody = method === 'POST' && bodyText && !isUpsert ? injectIds(bodyText) : bodyText
-
   try {
     await queueAdd({
-      url: req.url,
+      url: finalUrl,
       method,
       headers: headersToObject(req.headers),
       body: finalBody,
@@ -156,5 +192,5 @@ export async function offlineFetch(
     throw new TypeError('Sin conexión y sin almacenamiento local disponible')
   }
 
-  return syntheticResponse(method, req.url, req.headers, finalBody)
+  return syntheticResponse(method, finalUrl, req.headers, finalBody)
 }

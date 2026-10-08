@@ -31,7 +31,8 @@ const filteredPigs = computed(() =>
       !filterPregnant.value ||
       (filterPregnant.value === 'yes' && a.pig_detail?.is_pregnant) ||
       (filterPregnant.value === 'no' && !a.pig_detail?.is_pregnant)
-    const matchStage = !filterStage.value || calcPigStage(a.birth_date) === filterStage.value
+    // La etapa guardada (ej. reproducción) manda; si no hay, se calcula por la edad
+    const matchStage = !filterStage.value || (a.stage ?? calcPigStage(a.birth_date)) === filterStage.value
     return matchSearch && matchStatus && matchPregnant && matchStage
   })
 )
@@ -67,7 +68,7 @@ const statusLabel: Record<string, string> = {
 
     <div class="card flex flex-col sm:flex-row gap-3">
       <div class="relative flex-1">
-        <Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+        <Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
         <input v-model="searchQuery" type="text" placeholder="Buscar..." class="form-input pl-9" />
       </div>
       <select v-model="filterStatus" class="form-select sm:w-40">
@@ -107,11 +108,11 @@ const statusLabel: Record<string, string> = {
           >
             {{ stageConfig[calcPigStage((row as Animal).birth_date)!].label }}
           </span>
-          <span v-if="pigAgeLabel((row as Animal).birth_date)" class="ml-1.5 text-xs text-gray-400">
+          <span v-if="pigAgeLabel((row as Animal).birth_date)" class="ml-1.5 text-xs text-gray-500">
             {{ pigAgeLabel((row as Animal).birth_date) }}
           </span>
         </template>
-        <span v-else class="text-sm text-gray-400">—</span>
+        <span v-else class="text-sm text-gray-500">—</span>
       </template>
 
       <template #sex="{ row }">

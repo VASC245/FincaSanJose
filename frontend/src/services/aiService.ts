@@ -119,16 +119,24 @@ const QUERYABLE_TABLES = [
   'weight_records', 'bcs_records', 'inventory_categories', 'inventory_items', 'inventory_movements',
   'tasks', 'gastos', 'ventas', 'iot_alerts', 'sensor_readings', 'camera_events'
 ] as const
+// La leche NO está aquí: corregirla o borrarla exige la clave de corrección
+// en la pantalla Leche (la base de datos tampoco lo permite sin clave).
 const WRITABLE_TABLES = [
   'animals', 'cattle_details', 'pig_details', 'calf_births', 'litters', 'heat_records',
-  'insemination_records', 'vaccination_records', 'vaccines', 'milk_sessions', 'milk_records',
+  'insemination_records', 'vaccination_records', 'vaccines',
   'weight_records', 'bcs_records', 'inventory_categories', 'inventory_items',
   'tasks', 'gastos', 'ventas'
 ] as const
 const DELETABLE_TABLES = [
   'calf_births', 'litters', 'heat_records', 'insemination_records', 'vaccination_records',
-  'milk_sessions', 'milk_records', 'weight_records', 'bcs_records', 'tasks', 'gastos', 'ventas'
+  'weight_records', 'bcs_records', 'tasks', 'gastos', 'ventas'
 ] as const
+const MILK_LOCKED_MSG =
+  'Los registros de leche ya guardados solo se corrigen o borran en la pantalla Leche, con la clave de corrección. Tócalo allí, escribe el motivo y la clave.'
+function isMilkTable(table: string) {
+  return table === 'milk_sessions' || table === 'milk_records'
+}
+
 const INSERTABLE_TABLES = ['inventory_items', 'inventory_categories', 'vaccines'] as const
 
 interface Tool {
@@ -788,24 +796,42 @@ async function findAnimal(identifier: string): Promise<FoundAnimal | null> {
   return null
 }
 
+// Varias coincidencias parciales: solo se elige sola si hay una exacta (sin
+// importar mayúsculas/tildes); si no, se pide aclarar como en findAnimal en
+// vez de tomar la primera que devuelva la base (orden no garantizado).
+function pickOne<T>(
+  rows: T[], label: (r: T) => string | null | undefined, search: string, what: string,
+  prefer?: (r: T) => boolean
+): T | null {
+  const preferred = prefer ? rows.filter(prefer) : []
+  const list = preferred.length ? preferred : rows
+  if (list.length <= 1) return list[0] ?? null
+  const exact = list.filter(r => norm(label(r)) === norm(search))
+  if (exact.length === 1) return exact[0]
+  const options = (exact.length > 1 ? exact : list).slice(0, 8).map(r => (label(r) ?? '').trim())
+  throw new ToolError(`Hay varias ${what} que coinciden con "${search}": ${options.join('; ')}. Pregunta al usuario cuál es.`)
+}
+
 async function findInventoryItem(name: string) {
   const { data } = await supabase
     .from('inventory_items').select('id, name, quantity, unit')
-    .ilike('name', `%${name}%`).limit(3)
-  return data?.[0] ?? null
+    .ilike('name', `%${name}%`).limit(50)
+  return pickOne(data ?? [], i => i.name, name, 'opciones en el inventario')
 }
 
 // ─── Tool implementations ─────────────────────────────────────────────────────
 
 async function getFarmSummary(): Promise<string> {
   const firstOfMonth = today().slice(0, 7) + '-01'
-  const sevenDaysAgo = localDateOffset(-7)
+  // "Últimos 7 días" = hoy + los 6 anteriores (gte incluye el día de inicio)
+  const sevenDaysAgo = localDateOffset(-6)
 
   const [cattle, pigs, pregnantCows, pregnantSows, tasks, items, expenses, milkSessions] = await Promise.all([
     supabase.from('animals').select('id', { count: 'exact', head: true }).eq('species', 'cattle').eq('status', 'active'),
     supabase.from('animals').select('id', { count: 'exact', head: true }).eq('species', 'pig').eq('status', 'active'),
-    supabase.from('cattle_details').select('animal_id', { count: 'exact', head: true }).eq('is_pregnant', true),
-    supabase.from('pig_details').select('animal_id', { count: 'exact', head: true }).eq('is_pregnant', true),
+    // Solo animales activos: una vendida o muerta no cuenta como preñada
+    supabase.from('cattle_details').select('animal_id, animals!inner(status)', { count: 'exact', head: true }).eq('is_pregnant', true).eq('animals.status', 'active'),
+    supabase.from('pig_details').select('animal_id, animals!inner(status)', { count: 'exact', head: true }).eq('is_pregnant', true).eq('animals.status', 'active'),
     supabase.from('tasks').select('id', { count: 'exact', head: true }).in('status', ['pending', 'in_progress']),
     supabase.from('inventory_items').select('name, quantity, min_quantity'),
     supabase.from('gastos').select('monto').gte('fecha', firstOfMonth),
@@ -889,7 +915,7 @@ async function getLitters(input: { sow_ear_tag?: string }): Promise<string> {
 
 async function getCalfBirths(input: { cow_ear_tag?: string; days?: number }): Promise<string> {
   const days = input.days ?? 365
-  const since = localDateOffset(-days)
+  const since = localDateOffset(-(days - 1))
 
   let query = supabase
     .from('calf_births')
@@ -929,7 +955,7 @@ async function getInventoryMovements(input: { item_name: string; days?: number }
   if (!item) return `No encontré producto "${input.item_name}" en el inventario.`
 
   const days = input.days ?? 30
-  const since = localDateOffset(-days)
+  const since = localDateOffset(-(days - 1))
 
   const { data, error } = await supabase
     .from('inventory_movements')
@@ -969,7 +995,7 @@ async function getAllTasks(input: { status?: string; category?: string; limit?: 
 
 async function getRecentExpenses(input: { days?: number }): Promise<string> {
   const days = input.days ?? 30
-  const since = localDateOffset(-days)
+  const since = localDateOffset(-(days - 1))
   const { data, error } = await supabase
     .from('gastos').select('fecha, monto, descripcion, categoria')
     .gte('fecha', since).order('fecha', { ascending: false })
@@ -989,7 +1015,7 @@ async function getExpenseStats(input: { days?: number; year_month?: string }): P
     until = `${input.year_month}-${String(lastDay).padStart(2, '0')}`
   } else {
     const days = input.days ?? 30
-    since = localDateOffset(-days)
+    since = localDateOffset(-(days - 1))
   }
 
   let query = supabase.from('gastos').select('monto, categoria').gte('fecha', since)
@@ -1021,7 +1047,7 @@ async function getExpenseStats(input: { days?: number; year_month?: string }): P
 
 async function getMilkProduction(input: { days?: number; animal_ear_tag?: string }): Promise<string> {
   const days = input.days ?? 30
-  const since = localDateOffset(-days)
+  const since = localDateOffset(-(days - 1))
 
   if (input.animal_ear_tag) {
     const animal = await findAnimal(input.animal_ear_tag)
@@ -1054,7 +1080,7 @@ async function getMilkProduction(input: { days?: number; animal_ear_tag?: string
 
 async function getHeatRecords(input: { animal_ear_tag?: string; days?: number }): Promise<string> {
   const days = input.days ?? 60
-  const since = localDateOffset(-days)
+  const since = localDateOffset(-(days - 1))
 
   let query = supabase
     .from('heat_records')
@@ -1567,9 +1593,15 @@ async function updatePregnancy(input: {
     detailUpdate.expected_birth = null
   }
 
+  // Upsert: a los lechones/terneros que nacieron en la finca a veces les falta
+  // la fila de detalle y un update a secas no tocaba nada (0 filas)
   const table = animal.species === 'cattle' ? 'cattle_details' : 'pig_details'
-  const { error } = await supabase.from(table).update(detailUpdate).eq('animal_id', animal.id)
+  const { data: written, error } = await supabase
+    .from(table)
+    .upsert({ animal_id: animal.id, ...detailUpdate }, { onConflict: 'animal_id' })
+    .select('animal_id')
   if (error) return `Error: ${error.message}`
+  if (!written?.length) return `No pude guardar la preñez de ${animal.ear_tag ?? animal.name}. No se cambió nada.`
 
   // Mantener el historial de inseminaciones sincronizado
   let recordInfo = ''
@@ -1618,7 +1650,7 @@ async function createExpense(input: {
 
 async function getRecentSales(input: { days?: number }): Promise<string> {
   const days = input.days ?? 30
-  const since = localDateOffset(-days)
+  const since = localDateOffset(-(days - 1))
   const { data, error } = await supabase
     .from('ventas').select('fecha, monto, tipo, descripcion, cantidad, unidad, comprador')
     .gte('fecha', since).order('fecha', { ascending: false })
@@ -1638,7 +1670,7 @@ async function getFinanceSummary(input: { days?: number; year_month?: string }):
     until = `${input.year_month}-${String(lastDay).padStart(2, '0')}`
   } else {
     const days = input.days ?? 30
-    since = localDateOffset(-days)
+    since = localDateOffset(-(days - 1))
   }
 
   let ventasQ = supabase.from('ventas').select('monto, tipo').gte('fecha', since)
@@ -1716,12 +1748,15 @@ async function updateTaskFn(input: {
   title_search: string; status?: string; priority?: string; due_date?: string; description?: string
 }): Promise<string> {
   const { data } = await supabase
-    .from('tasks').select('id, title')
+    .from('tasks').select('id, title, status')
     .ilike('title', `%${input.title_search}%`)
-    .limit(3)
+    .order('created_at', { ascending: false })
+    .limit(50)
 
-  if (!data?.length) return `No encontré tarea con "${input.title_search}".`
-  const task = data[0]
+  // Ante empates, preferir las tareas abiertas
+  const task = pickOne(data ?? [], t => t.title, input.title_search, 'tareas',
+    t => t.status === 'pending' || t.status === 'in_progress')
+  if (!task) return `No encontré tarea con "${input.title_search}".`
 
   const updates: Record<string, unknown> = {}
   if (input.status) updates.status = input.status
@@ -1740,10 +1775,10 @@ async function completeTask(input: { title_search: string }): Promise<string> {
   const { data } = await supabase
     .from('tasks').select('id, title')
     .ilike('title', `%${input.title_search}%`)
-    .in('status', ['pending', 'in_progress']).limit(3)
+    .in('status', ['pending', 'in_progress']).limit(50)
 
-  if (!data?.length) return `No encontré tarea pendiente con "${input.title_search}".`
-  const task = data[0]
+  const task = pickOne(data ?? [], t => t.title, input.title_search, 'tareas pendientes')
+  if (!task) return `No encontré tarea pendiente con "${input.title_search}".`
 
   const { error } = await supabase.from('tasks').update({ status: 'completed' }).eq('id', task.id)
   if (error) return `Error: ${error.message}`
@@ -1932,6 +1967,7 @@ async function insertRecord(input: { table: string; values: Record<string, unkno
 }
 
 async function updateRecord(input: { table: string; id: string; changes: Record<string, unknown> }): Promise<string> {
+  if (isMilkTable(input.table)) return MILK_LOCKED_MSG
   if (!(WRITABLE_TABLES as readonly string[]).includes(input.table)) {
     return `No se puede modificar ${input.table}.`
   }
@@ -1957,6 +1993,7 @@ async function updateRecord(input: { table: string; id: string; changes: Record<
 }
 
 async function deleteRecord(input: { table: string; id: string }): Promise<string> {
+  if (isMilkTable(input.table)) return MILK_LOCKED_MSG
   if (!(DELETABLE_TABLES as readonly string[]).includes(input.table)) {
     return `No se puede borrar en ${input.table}.`
   }
@@ -2049,7 +2086,7 @@ const isWriteTool = (name: string) =>
   /^(register_|create_|update_|complete_|apply_|add_|remove_|insert_|delete_)/.test(name)
 
 // Resultados que no guardaron nada (no encontrado, sin stock, ambiguo…)
-const NOT_DONE = /^(Error|No |Stock insuficiente|Hay varios|La |El |Tabla no|Herramienta desconocida|Operador)/
+const NOT_DONE = /^(Error|No |Stock insuficiente|Hay varios|Hay varias|La |El |Tabla no|Herramienta desconocida|Operador)/
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
@@ -2070,6 +2107,9 @@ export interface AssistantReply {
 
 const MAX_STEPS = 12
 
+/** Respuesta cuando ya se guardó algo pero la llamada al modelo falló después. */
+export const PARTIAL_REPLY = 'Guardé lo anterior, pero no pude terminar la respuesta. No lo repitas.'
+
 // El historial entre preguntas viaja solo como texto (sin bloques de
 // herramientas ni de razonamiento): más barato, y no hay bloques viejos que
 // reenviar. Dentro de una misma pregunta la conversación solo se agrega
@@ -2088,7 +2128,17 @@ export async function sendMessage(
     blocks.filter((b): b is TextBlock => b.type === 'text').map(b => b.text).join('\n').trim()
 
   for (let i = 0; i < MAX_STEPS; i++) {
-    const response = await callClaude(current)
+    let response: ApiResponse
+    try {
+      response = await callClaude(current)
+    } catch (e) {
+      // Si ya se guardó algo en esta pregunta, no lanzar el error: la persona
+      // volvería a dictarlo y quedaría duplicado. Se devuelve lo que sí quedó.
+      if (actions.some(a => a.ok)) {
+        return { text: PARTIAL_REPLY, actions }
+      }
+      throw e
+    }
 
     switch (response.stop_reason) {
       case 'tool_use': {

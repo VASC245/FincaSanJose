@@ -37,7 +37,11 @@ export const useVentasStore = defineStore('ventas', () => {
   async function editVenta(id: string, payload: Partial<VentaFormData>): Promise<Venta> {
     const updated = await ventasService.updateVenta(id, payload)
     const idx = ventas.value.findIndex((v) => v.id === id)
-    if (idx !== -1) ventas.value[idx] = updated
+    if (idx !== -1) {
+      // Fusionar: la respuesta offline (sintética) solo trae los campos cambiados
+      ventas.value[idx] = { ...ventas.value[idx], ...updated }
+      return ventas.value[idx]
+    }
     return updated
   }
 

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { localToday } from '@/lib/dates'
 import { onMounted, ref, reactive, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import {
@@ -109,7 +110,7 @@ interface HeatTarget { piglet: Animal; records: HeatRecord[]; loading: boolean }
 const heatTarget = ref<HeatTarget | null>(null)
 
 const heatForm = reactive({
-  observed_date: new Date().toISOString().slice(0, 10),
+  observed_date: localToday(),
   notes: '',
   saving: false
 })
@@ -121,7 +122,7 @@ async function openHeat(piglet: Animal) {
   } finally {
     if (heatTarget.value) heatTarget.value.loading = false
   }
-  heatForm.observed_date = new Date().toISOString().slice(0, 10)
+  heatForm.observed_date = localToday()
   heatForm.notes = ''
   heatForm.saving = false
 }
@@ -138,7 +139,7 @@ async function submitHeat() {
       notes: heatForm.notes || null
     })
     heatTarget.value.records.unshift(record)
-    heatForm.observed_date = new Date().toISOString().slice(0, 10)
+    heatForm.observed_date = localToday()
     heatForm.notes = ''
   } catch (e) { alert('Error: ' + (e as Error).message) }
   finally { heatForm.saving = false }
@@ -165,7 +166,7 @@ async function ensureInventory() {
 interface BatchTarget { litter: LitterWithSow; piglets: Animal[] }
 const batchTarget = ref<BatchTarget | null>(null)
 const batchForm = reactive({
-  inventory_item_id: '', applied_date: new Date().toISOString().slice(0, 10),
+  inventory_item_id: '', applied_date: localToday(),
   next_date: '', applied_by: '', notes: '', saving: false, quantity_per_dose: 1
 })
 const batchSearch = ref('')
@@ -180,7 +181,7 @@ async function openBatchVaccine(litter: LitterWithSow) {
   await ensureInventory()
   batchTarget.value = { litter, piglets: piglets.value[litter.id] ?? [] }
   Object.assign(batchForm, {
-    inventory_item_id: '', applied_date: new Date().toISOString().slice(0, 10),
+    inventory_item_id: '', applied_date: localToday(),
     next_date: '', applied_by: '', notes: '', saving: false, quantity_per_dose: 1
   })
   batchSearch.value = ''
@@ -197,14 +198,19 @@ async function submitBatchVaccine() {
       applied_date: batchForm.applied_date, next_date: batchForm.next_date || null,
       applied_by: batchForm.applied_by || null, notes: batchForm.notes || null
     })
-    await createMovement({
-      item_id: batchForm.inventory_item_id,
-      type: 'out',
-      quantity: animalIds.length * batchForm.quantity_per_dose,
-      date: batchForm.applied_date,
-      notes: `Vacunación masiva — ${animalIds.length} lechones`
-    })
     batchTarget.value = null
+    // Las vacunas ya quedaron guardadas: un fallo de inventario se avisa aparte
+    try {
+      await createMovement({
+        item_id: batchForm.inventory_item_id,
+        type: 'out',
+        quantity: animalIds.length * batchForm.quantity_per_dose,
+        date: batchForm.applied_date,
+        notes: `Vacunación masiva, ${animalIds.length} lechones`
+      })
+    } catch (e) {
+      alert('Las vacunas se guardaron, pero no se descontaron del inventario: ' + (e as Error).message)
+    }
   } catch (e) { alert('Error: ' + (e as Error).message) }
   finally { batchForm.saving = false }
 }
@@ -293,7 +299,8 @@ async function saveEditLitter() {
 // ─── Utils ────────────────────────────────────────────────────────────────────
 
 function formatDate(d: string) {
-  return new Date(d).toLocaleDateString('es', { day: '2-digit', month: 'short', year: 'numeric' })
+  // Fecha de calendario: a mediodía local para que no salga un día antes (UTC-5)
+  return new Date(`${d.slice(0, 10)}T12:00:00`).toLocaleDateString('es', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
 function daysLabel(days: number): string {
@@ -312,11 +319,11 @@ function daysLabel(days: number): string {
       <p class="text-sm text-gray-500 mt-0.5">{{ litters.length }} camadas registradas</p>
     </div>
 
-    <div v-if="pageLoading" class="card text-center py-16 text-gray-400">Cargando camadas...</div>
-    <div v-else-if="!litters.length" class="card text-center py-16 text-gray-400">No hay camadas registradas.</div>
+    <div v-if="pageLoading" class="card-empty">Cargando camadas...</div>
+    <div v-else-if="!litters.length" class="card-empty">No hay camadas registradas.</div>
 
     <div v-else class="space-y-3">
-      <div v-for="litter in litters" :key="litter.id" class="rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+      <div v-for="litter in litters" :key="litter.id" class="rounded-xl border border-gray-200 overflow-hidden bg-white">
 
         <!-- Cabecera — modo edición -->
         <div v-if="editingLitterId === litter.id" class="px-4 py-4 bg-amber-50 border-b border-amber-100 space-y-3">
@@ -364,7 +371,7 @@ function daysLabel(days: number): string {
           @click="toggle(litter)"
         >
           <div class="flex items-center gap-3">
-            <component :is="expanded[litter.id] ? ChevronDown : ChevronRight" class="w-4 h-4 text-gray-400 shrink-0" />
+            <component :is="expanded[litter.id] ? ChevronDown : ChevronRight" class="w-4 h-4 text-gray-500 shrink-0" />
             <div>
               <div class="flex items-center gap-2 flex-wrap">
                 <span class="text-sm font-semibold text-gray-800">{{ formatDate(litter.birth_date) }}</span>
@@ -372,7 +379,7 @@ function daysLabel(days: number): string {
                   @click.stop="router.push(`/pigs/${litter.sow.id}`)">
                   <PiggyBank class="w-3 h-3" />
                   {{ litter.sow.ear_tag ?? 'Sin arete' }}
-                  <span v-if="litter.sow.name" class="text-gray-400">· {{ litter.sow.name }}</span>
+                  <span v-if="litter.sow.name" class="text-gray-500">· {{ litter.sow.name }}</span>
                 </button>
               </div>
               <p class="text-xs text-gray-500 mt-0.5">
@@ -381,18 +388,18 @@ function daysLabel(days: number): string {
             </div>
           </div>
           <div class="flex items-center gap-2 shrink-0">
-            <button class="p-1.5 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
+            <button class="p-1.5 text-gray-500 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
               title="Editar camada" @click.stop="startEditLitter(litter)">
               <Pencil class="w-3.5 h-3.5" />
             </button>
-            <button class="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+            <button class="p-1.5 text-gray-500 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
               title="Eliminar camada" :disabled="deletingId === litter.id" @click.stop="removeLitter(litter)">
               <Loader v-if="deletingId === litter.id" class="w-3.5 h-3.5 animate-spin" />
               <Trash2 v-else class="w-3.5 h-3.5" />
             </button>
             <div class="text-right ml-1">
               <span class="text-2xl font-bold text-pink-500">{{ litter.born_alive }}</span>
-              <p class="text-xs text-gray-400">vivos</p>
+              <p class="text-xs text-gray-500">vivos</p>
             </div>
           </div>
         </button>
@@ -400,7 +407,7 @@ function daysLabel(days: number): string {
         <!-- Panel expandible -->
         <div v-if="expanded[litter.id] && editingLitterId !== litter.id" class="border-t border-gray-100 bg-gray-50 px-4 py-4 space-y-4">
           <p v-if="litter.notes" class="text-xs text-gray-500 italic">{{ litter.notes }}</p>
-          <div v-if="loadingPiglets[litter.id]" class="text-center py-4 text-sm text-gray-400">Cargando lechones...</div>
+          <div v-if="loadingPiglets[litter.id]" class="text-center py-4 text-sm text-gray-500">Cargando lechones...</div>
 
           <template v-else>
             <!-- Encabezado + vacunar todos -->
@@ -433,7 +440,7 @@ function daysLabel(days: number): string {
                     <Loader v-if="editForm.saving" class="w-3.5 h-3.5 animate-spin" />
                     <Check v-else class="w-3.5 h-3.5" />
                   </button>
-                  <button class="flex items-center justify-center w-8 h-8 rounded-lg text-gray-400 hover:bg-gray-100 shrink-0"
+                  <button class="flex items-center justify-center w-8 h-8 rounded-lg text-gray-500 hover:bg-gray-100 shrink-0"
                     @click="cancelEdit">
                     <X class="w-3.5 h-3.5" />
                   </button>
@@ -451,7 +458,7 @@ function daysLabel(days: number): string {
                   </span>
 
                   <!-- Edad + etapa automática -->
-                  <span class="text-xs text-gray-400 shrink-0 w-8 text-right">
+                  <span class="text-xs text-gray-500 shrink-0 w-8 text-right">
                     {{ pigAgeLabel(piglet.birth_date) }}
                   </span>
                   <span
@@ -464,16 +471,16 @@ function daysLabel(days: number): string {
 
                   <!-- Acciones -->
                   <div class="flex items-center gap-1 ml-auto shrink-0">
-                    <button class="p-1.5 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-colors"
+                    <button class="p-1.5 text-gray-500 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-colors"
                       title="Editar arete/sexo" @click="startEdit(piglet)">
                       <Pencil class="w-3.5 h-3.5" />
                     </button>
-                    <button class="p-1.5 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                    <button class="p-1.5 text-gray-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
                       title="Vacuna individual" @click="vaccinePiglet = piglet">
                       <Syringe class="w-3.5 h-3.5" />
                     </button>
                     <button v-if="piglet.sex === 'female'"
-                      class="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                      class="p-1.5 text-gray-500 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
                       title="Registrar celo" @click="openHeat(piglet)">
                       <Heart class="w-3.5 h-3.5" />
                     </button>
@@ -482,7 +489,7 @@ function daysLabel(days: number): string {
               </div>
             </div>
 
-            <p v-else class="text-xs text-gray-400 italic py-2">Sin lechones registrados aún.</p>
+            <p v-else class="text-xs text-gray-500 italic py-2">Sin lechones registrados aún.</p>
 
             <!-- Agregar lechón -->
             <div>
@@ -537,7 +544,7 @@ function daysLabel(days: number): string {
             </option>
           </select>
           <p v-if="batchSelectedItem" class="mt-1 text-xs"
-            :class="batchSelectedItem.quantity <= batchSelectedItem.min_quantity ? 'text-red-500' : 'text-gray-400'">
+            :class="batchSelectedItem.quantity <= batchSelectedItem.min_quantity ? 'text-red-500' : 'text-gray-500'">
             Stock: {{ batchSelectedItem.quantity }} {{ batchSelectedItem.unit }}
             <span v-if="batchSelectedItem.quantity <= batchSelectedItem.min_quantity"> — Stock bajo</span>
           </p>
@@ -580,11 +587,11 @@ function daysLabel(days: number): string {
         <div class="flex items-center gap-2 text-sm text-gray-700 font-medium">
           <Heart class="w-4 h-4 text-rose-500" />
           {{ heatTarget.piglet.ear_tag ?? 'Sin arete' }}
-          <span v-if="heatTarget.piglet.name" class="text-gray-400">· {{ heatTarget.piglet.name }}</span>
+          <span v-if="heatTarget.piglet.name" class="text-gray-500">· {{ heatTarget.piglet.name }}</span>
         </div>
 
         <!-- Historial de celos -->
-        <div v-if="heatTarget.loading" class="text-center py-4 text-sm text-gray-400">Cargando...</div>
+        <div v-if="heatTarget.loading" class="text-center py-4 text-sm text-gray-500">Cargando...</div>
         <div v-else-if="heatTarget.records.length" class="space-y-2">
           <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Historial</p>
           <div class="divide-y divide-gray-100 rounded-lg border border-gray-200 bg-white overflow-hidden">
@@ -608,13 +615,13 @@ function daysLabel(days: number): string {
                 </div>
                 <div class="rounded-lg px-2.5 py-1.5"
                   :class="daysUntil(calcNextHeat(r.observed_date)) < 0 ? 'bg-gray-50' : 'bg-amber-50'">
-                  <p class="text-xs font-medium" :class="daysUntil(calcNextHeat(r.observed_date)) < 0 ? 'text-gray-400' : 'text-amber-600'">
+                  <p class="text-xs font-medium" :class="daysUntil(calcNextHeat(r.observed_date)) < 0 ? 'text-gray-500' : 'text-amber-600'">
                     Próximo celo
                   </p>
                   <p class="text-xs font-semibold" :class="daysUntil(calcNextHeat(r.observed_date)) < 0 ? 'text-gray-600' : 'text-amber-800'">
                     {{ formatDate(calcNextHeat(r.observed_date)) }}
                   </p>
-                  <p class="text-xs" :class="daysUntil(calcNextHeat(r.observed_date)) < 0 ? 'text-gray-400' : 'text-amber-600'">
+                  <p class="text-xs" :class="daysUntil(calcNextHeat(r.observed_date)) < 0 ? 'text-gray-500' : 'text-amber-600'">
                     {{ daysLabel(daysUntil(calcNextHeat(r.observed_date))) }}
                   </p>
                 </div>
@@ -629,7 +636,7 @@ function daysLabel(days: number): string {
             </div>
           </div>
         </div>
-        <p v-else-if="!heatTarget.loading" class="text-xs text-gray-400 italic">Sin registros de celo aún.</p>
+        <p v-else-if="!heatTarget.loading" class="text-xs text-gray-500 italic">Sin registros de celo aún.</p>
 
         <!-- Formulario nuevo celo -->
         <div class="border-t border-gray-100 pt-4 space-y-3">

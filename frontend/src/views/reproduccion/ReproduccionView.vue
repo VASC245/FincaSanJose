@@ -58,10 +58,10 @@ function chip(level: IndicatorLevel) {
       </button>
     </div>
 
-    <div v-if="loading" class="text-center py-12 text-sm text-gray-400">
+    <div v-if="loading" class="text-center py-12 text-sm text-gray-500">
       Calculando indicadores...
     </div>
-    <div v-else-if="error" class="card text-center py-8 text-sm text-red-600">
+    <div v-else-if="error" class="card-error">
       {{ error }}
     </div>
 
@@ -72,36 +72,32 @@ function chip(level: IndicatorLevel) {
           title="Días abiertos (prom.)"
           :value="data.herd.promDiasAbiertos ?? '—'"
           :icon="CalendarRange"
-          color="blue"
           subtitle="meta: ≤ 120"
         />
         <StatCard
           title="Intervalo entre partos"
           :value="data.herd.promIntervaloPartos ? `${data.herd.promIntervaloPartos} d` : '—'"
           :icon="Baby"
-          color="green"
           subtitle="meta: ≤ 400 días"
         />
         <StatCard
           title="Servicios por preñez"
           :value="data.herd.promServiciosPorConcepcion ?? '—'"
           :icon="Syringe"
-          color="purple"
           subtitle="meta: ≤ 2"
         />
         <StatCard
           title="Camadas por cerda/año"
           :value="data.herd.promCamadasPorAno ?? '—'"
           :icon="HeartHandshake"
-          color="pink"
           subtitle="meta: ≥ 2.2"
         />
       </div>
 
       <!-- Vacas -->
       <div class="card space-y-3">
-        <h2 class="text-sm font-semibold text-gray-700">Vacas</h2>
-        <p v-if="!data.cows.length" class="text-sm text-gray-400 py-4 text-center">
+        <h2 class="card-title">Vacas</h2>
+        <p v-if="!data.cows.length" class="text-sm text-gray-500 py-4 text-center">
           Aún no hay partos ni servicios registrados en bovinos.
         </p>
         <div v-else class="overflow-x-auto">
@@ -133,7 +129,7 @@ function chip(level: IndicatorLevel) {
                 </td>
                 <td class="px-3 py-2 text-gray-600 whitespace-nowrap">
                   {{ c.lastBirth ? formatDate(c.lastBirth) : '—' }}
-                  <span v-if="c.birthCount" class="text-xs text-gray-400">({{ c.birthCount }} parto{{ c.birthCount !== 1 ? 's' : '' }})</span>
+                  <span v-if="c.birthCount" class="text-xs text-gray-500">({{ c.birthCount }} parto{{ c.birthCount !== 1 ? 's' : '' }})</span>
                 </td>
                 <td class="px-3 py-2">
                   <span
@@ -143,7 +139,7 @@ function chip(level: IndicatorLevel) {
                   >
                     {{ c.diasAbiertos }} d{{ c.diasAbiertosEnCurso ? ' y contando' : '' }}
                   </span>
-                  <span v-else class="text-gray-400">—</span>
+                  <span v-else class="text-gray-500">—</span>
                 </td>
                 <td class="px-3 py-2">
                   <span
@@ -153,7 +149,7 @@ function chip(level: IndicatorLevel) {
                   >
                     {{ c.intervaloPartos }} d
                   </span>
-                  <span v-else class="text-gray-400">—</span>
+                  <span v-else class="text-gray-500">—</span>
                 </td>
                 <td class="px-3 py-2">
                   <span
@@ -163,7 +159,7 @@ function chip(level: IndicatorLevel) {
                   >
                     {{ c.servicios }}
                   </span>
-                  <span v-else class="text-gray-400">—</span>
+                  <span v-else class="text-gray-500">—</span>
                 </td>
               </tr>
             </tbody>
@@ -174,10 +170,10 @@ function chip(level: IndicatorLevel) {
       <!-- Cerdas: ranking de madres -->
       <div class="card space-y-3">
         <div class="flex items-center justify-between flex-wrap gap-1">
-          <h2 class="text-sm font-semibold text-gray-700">Cerdas reproductoras — ranking de madres</h2>
-          <p class="text-xs text-gray-400">Ordenadas de mejor a peor por destetados/año</p>
+          <h2 class="card-title">Cerdas reproductoras — ranking de madres</h2>
+          <p class="text-xs text-gray-500">Ordenadas de mejor a peor por destetados/año</p>
         </div>
-        <p v-if="!data.sows.length" class="text-sm text-gray-400 py-4 text-center">
+        <p v-if="!data.sows.length" class="text-sm text-gray-500 py-4 text-center">
           Aún no hay camadas registradas en cerdas reproductoras.
         </p>
         <div v-else class="overflow-x-auto">
@@ -211,7 +207,7 @@ function chip(level: IndicatorLevel) {
                 </td>
                 <td class="px-3 py-2 text-gray-600 whitespace-nowrap">
                   {{ s.lastLitter ? formatDate(s.lastLitter) : '—' }}
-                  <span v-if="s.litterCount" class="text-xs text-gray-400">({{ s.litterCount }})</span>
+                  <span v-if="s.litterCount" class="text-xs text-gray-500">({{ s.litterCount }})</span>
                 </td>
                 <td class="px-3 py-2">
                   <span
@@ -221,7 +217,7 @@ function chip(level: IndicatorLevel) {
                   >
                     {{ s.intervaloCamadas }} d
                   </span>
-                  <span v-else class="text-gray-400">—</span>
+                  <span v-else class="text-gray-500">—</span>
                 </td>
                 <td class="px-3 py-2 text-gray-600">
                   {{ s.camadasPorAno ?? '—' }}
@@ -243,7 +239,7 @@ function chip(level: IndicatorLevel) {
                   >
                     {{ s.destetadosPorAno }}
                   </span>
-                  <span v-else class="text-gray-400">—</span>
+                  <span v-else class="text-gray-500">—</span>
                 </td>
               </tr>
             </tbody>
@@ -256,8 +252,8 @@ function chip(level: IndicatorLevel) {
 
       <!-- Ranking de sementales -->
       <div class="card space-y-3">
-        <h2 class="text-sm font-semibold text-gray-700">Ranking de sementales (toros y verracos)</h2>
-        <p v-if="!data.sires.length" class="text-sm text-gray-400 py-4 text-center">
+        <h2 class="card-title">Ranking de sementales (toros y verracos)</h2>
+        <p v-if="!data.sires.length" class="text-sm text-gray-500 py-4 text-center">
           Aún no hay inseminaciones con nombre de semental registrado.
         </p>
         <div v-else class="overflow-x-auto">
@@ -287,7 +283,7 @@ function chip(level: IndicatorLevel) {
                   >
                     {{ r.tasa }}%
                   </span>
-                  <span v-else class="text-gray-400 text-xs">sin resultados</span>
+                  <span v-else class="text-gray-500 text-xs">sin resultados</span>
                 </td>
               </tr>
             </tbody>
@@ -296,7 +292,7 @@ function chip(level: IndicatorLevel) {
       </div>
 
       <!-- Explicación -->
-      <div class="rounded-xl border border-blue-100 bg-blue-50 p-4 space-y-2">
+      <div class="notice-info space-y-2">
         <div class="flex items-center gap-2">
           <Info class="w-4 h-4 text-blue-600 shrink-0" />
           <p class="text-sm font-semibold text-blue-800">Qué significa cada indicador</p>

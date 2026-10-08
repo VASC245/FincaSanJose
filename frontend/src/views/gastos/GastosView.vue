@@ -89,13 +89,20 @@ function onFotoChange(e: Event) {
   fotoPreview.value = URL.createObjectURL(file)
 }
 
+// Se cierra con retraso para que alcance a registrarse el clic en una opción
+function closeDropdownSoon() {
+  setTimeout(() => { showDropdown.value = false }, 150)
+}
+
 async function submit() {
   saving.value = true
+  let gastoGuardado = false
   try {
     if (editing.value) {
       await store.editGasto(editing.value.id, form.value, fotoFile.value ?? undefined)
     } else {
       await store.addGasto(form.value, fotoFile.value ?? undefined)
+      gastoGuardado = true
       // Registrar movimiento de entrada por cada producto seleccionado
       await Promise.all(
         invLines.value
@@ -110,6 +117,14 @@ async function submit() {
       )
     }
     showModal.value = false
+  } catch (e) {
+    if (gastoGuardado) {
+      // El gasto ya quedó guardado: no reintentar, o se duplicaría
+      showModal.value = false
+      alert('El gasto se guardó, pero no se pudo sumar al inventario: ' + (e as Error).message + '\nRegistra la entrada en Inventario.')
+    } else {
+      alert('No se pudo guardar el gasto: ' + (e as Error).message)
+    }
   } finally {
     saving.value = false
   }
@@ -144,7 +159,7 @@ const CATEGORIAS: Record<GastoCategoria, { label: string; color: string }> = {
   equipos:      { label: 'Equipos',      color: 'bg-blue-100 text-blue-800' },
   combustible:  { label: 'Combustible',  color: 'bg-orange-100 text-orange-800' },
   personal:     { label: 'Personal',     color: 'bg-purple-100 text-purple-800' },
-  otro:         { label: 'Otro',         color: 'bg-slate-100 text-slate-700' }
+  otro:         { label: 'Otro',         color: 'bg-gray-100 text-gray-700' }
 }
 
 function fmt(n: number) {
@@ -164,8 +179,8 @@ const lightboxUrl = ref<string | null>(null)
     <!-- Header -->
     <div class="flex items-center justify-between">
       <div>
-        <h1 class="text-2xl font-bold text-slate-900">Gastos</h1>
-        <p class="text-sm text-slate-500 mt-0.5">Registro de gastos de la finca</p>
+        <h1 class="text-2xl font-bold text-gray-900">Gastos</h1>
+        <p class="text-sm text-gray-500 mt-0.5">Registro de gastos de la finca</p>
       </div>
       <BaseButton variant="primary" @click="openNew">
         <PlusCircle class="w-4 h-4 mr-1.5" />
@@ -174,35 +189,35 @@ const lightboxUrl = ref<string | null>(null)
     </div>
 
     <!-- Stats -->
-    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-      <StatCard title="Total gastos" :value="fmt(store.total)" />
+    <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
+      <StatCard class="col-span-2 sm:col-span-1" title="Total gastos" :value="fmt(store.total)" />
       <StatCard title="Registros" :value="String(store.gastos.length)" />
       <StatCard title="Filtrado actual" :value="fmt(totalFiltrado)" />
     </div>
 
     <!-- Filtros -->
-    <div class="flex flex-wrap gap-3 bg-white p-4 rounded-xl border border-slate-200">
+    <div class="card flex flex-wrap gap-3">
       <div class="flex flex-col gap-1">
-        <label class="text-xs font-medium text-slate-600">Categoría</label>
+        <label class="text-xs font-medium text-gray-600">Categoría</label>
         <select
           v-model="filtroCategoria"
-          class="text-sm border border-slate-300 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary-500"
+          class="text-sm border border-gray-300 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary-500"
         >
           <option value="">Todas</option>
           <option v-for="(info, key) in CATEGORIAS" :key="key" :value="key">{{ info.label }}</option>
         </select>
       </div>
       <div class="flex flex-col gap-1">
-        <label class="text-xs font-medium text-slate-600">Mes</label>
+        <label class="text-xs font-medium text-gray-600">Mes</label>
         <input
           v-model="filtroMes"
           type="month"
-          class="text-sm border border-slate-300 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary-500"
+          class="text-sm border border-gray-300 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary-500"
         />
       </div>
       <div class="flex items-end">
         <button
-          class="text-sm text-slate-500 hover:text-slate-800 underline"
+          class="text-sm text-gray-500 hover:text-gray-800 underline"
           @click="filtroCategoria = ''; filtroMes = ''"
         >
           Limpiar
@@ -211,15 +226,15 @@ const lightboxUrl = ref<string | null>(null)
     </div>
 
     <!-- Loading -->
-    <div v-if="store.loading" class="text-center py-12 text-slate-400">Cargando...</div>
+    <div v-if="store.loading" class="text-center py-12 text-gray-500">Cargando...</div>
 
     <!-- Empty -->
     <div
       v-else-if="gastosFiltrados.length === 0"
-      class="text-center py-16 bg-white rounded-xl border border-slate-200"
+      class="card-empty"
     >
-      <Receipt class="w-10 h-10 mx-auto text-slate-300 mb-3" />
-      <p class="text-slate-500">No hay gastos registrados</p>
+      <Receipt class="w-10 h-10 mx-auto text-gray-300 mb-3" />
+      <p class="text-gray-500">No hay gastos registrados</p>
       <BaseButton variant="primary" class="mt-4" @click="openNew">Agregar primero</BaseButton>
     </div>
 
@@ -228,22 +243,22 @@ const lightboxUrl = ref<string | null>(null)
       <div
         v-for="g in gastosFiltrados"
         :key="g.id"
-        class="bg-white rounded-xl border border-slate-200 p-4 flex gap-4 items-start"
+        class="card flex gap-4 items-start"
       >
         <!-- Foto -->
         <div
-          class="shrink-0 w-16 h-16 rounded-lg overflow-hidden bg-slate-100 flex items-center justify-center cursor-pointer"
+          class="shrink-0 w-16 h-16 rounded-lg overflow-hidden bg-gray-100 flex items-center justify-center cursor-pointer"
           @click="g.foto_url && (lightboxUrl = g.foto_url)"
         >
           <img v-if="g.foto_url" :src="g.foto_url" class="w-full h-full object-cover" alt="Factura" />
-          <ImageOff v-else class="w-6 h-6 text-slate-300" />
+          <ImageOff v-else class="w-6 h-6 text-gray-300" />
         </div>
 
         <!-- Info -->
         <div class="flex-1 min-w-0">
           <div class="flex items-start justify-between gap-2">
-            <p class="font-semibold text-slate-900 truncate">{{ g.descripcion }}</p>
-            <span class="text-lg font-bold text-slate-900 whitespace-nowrap">{{ fmt(g.monto) }}</span>
+            <p class="font-semibold text-gray-900 line-clamp-2 leading-snug">{{ g.descripcion }}</p>
+            <span class="text-lg font-bold text-gray-900 whitespace-nowrap">{{ fmt(g.monto) }}</span>
           </div>
           <div class="flex flex-wrap items-center gap-2 mt-1.5">
             <span
@@ -252,20 +267,22 @@ const lightboxUrl = ref<string | null>(null)
             >
               {{ CATEGORIAS[g.categoria].label }}
             </span>
-            <span class="text-xs text-slate-400">{{ fmtFecha(g.fecha) }}</span>
+            <span class="text-xs text-gray-500">{{ fmtFecha(g.fecha) }}</span>
           </div>
         </div>
 
         <!-- Acciones -->
-        <div class="flex gap-1 shrink-0">
+        <div class="flex flex-col -my-1 -mr-1 shrink-0">
           <button
-            class="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors"
+            class="icon-btn"
+            aria-label="Editar"
             @click="openEdit(g)"
           >
             <Pencil class="w-4 h-4" />
           </button>
           <button
-            class="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-600 transition-colors"
+            class="icon-btn hover:text-red-700 hover:bg-red-50"
+            aria-label="Eliminar"
             @click="remove(g)"
           >
             <Trash2 class="w-4 h-4" />
@@ -290,20 +307,20 @@ const lightboxUrl = ref<string | null>(null)
       <form class="space-y-4" @submit.prevent="submit">
         <!-- Descripción -->
         <div>
-          <label class="block text-sm font-medium text-slate-700 mb-1">Descripción *</label>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Descripción *</label>
           <input
             v-model="form.descripcion"
             required
             type="text"
             placeholder="Ej: Concentrado para cerdos"
-            class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
           />
         </div>
 
         <!-- Monto + Fecha -->
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label class="block text-sm font-medium text-slate-700 mb-1">Monto *</label>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Monto *</label>
             <input
               v-model.number="form.monto"
               required
@@ -311,35 +328,35 @@ const lightboxUrl = ref<string | null>(null)
               min="0"
               step="0.01"
               placeholder="0"
-              class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
             />
           </div>
           <div>
-            <label class="block text-sm font-medium text-slate-700 mb-1">Fecha *</label>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Fecha *</label>
             <input
               v-model="form.fecha"
               required
               type="date"
-              class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
             />
           </div>
         </div>
 
         <!-- Categoría -->
         <div>
-          <label class="block text-sm font-medium text-slate-700 mb-1">Categoría *</label>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Categoría *</label>
           <select
             v-model="form.categoria"
             required
-            class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
           >
             <option v-for="(info, key) in CATEGORIAS" :key="key" :value="key">{{ info.label }}</option>
           </select>
         </div>
 
         <!-- Vincular inventario — multi-producto (solo en nuevos gastos) -->
-        <div v-if="!editing" class="border border-slate-200 rounded-lg p-3 space-y-3">
-          <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide">Agregar al inventario (opcional)</p>
+        <div v-if="!editing" class="border border-gray-200 rounded-lg p-3 space-y-3">
+          <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Agregar al inventario (opcional)</p>
 
           <!-- Buscador con dropdown -->
           <div class="relative">
@@ -348,14 +365,14 @@ const lightboxUrl = ref<string | null>(null)
               type="text"
               placeholder="Buscar producto para agregar..."
               autocomplete="off"
-              class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
               @focus="showDropdown = true"
-              @blur="setTimeout(() => showDropdown = false, 150)"
+              @blur="closeDropdownSoon"
             />
             <!-- Dropdown -->
             <div
               v-if="showDropdown && invFiltered.length"
-              class="absolute z-10 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg overflow-hidden"
+              class="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden"
             >
               <button
                 v-for="item in invFiltered"
@@ -365,7 +382,7 @@ const lightboxUrl = ref<string | null>(null)
                 @mousedown.prevent="addInvItem(item)"
               >
                 <span>{{ item.name }}</span>
-                <span class="text-xs text-slate-400 shrink-0">{{ item.quantity }} {{ item.unit }}</span>
+                <span class="text-xs text-gray-500 shrink-0">{{ item.quantity }} {{ item.unit }}</span>
               </button>
             </div>
           </div>
@@ -375,35 +392,35 @@ const lightboxUrl = ref<string | null>(null)
             <div
               v-for="(line, idx) in invLines"
               :key="line.item_id"
-              class="flex items-center gap-2 bg-slate-50 rounded-lg px-3 py-2"
+              class="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2"
             >
-              <span class="flex-1 text-sm text-slate-700 truncate">{{ line.name }}</span>
+              <span class="flex-1 text-sm text-gray-700 truncate">{{ line.name }}</span>
               <input
                 v-model.number="line.quantity"
                 type="number"
                 min="0.01"
                 step="0.01"
-                class="w-20 border border-slate-300 rounded-md px-2 py-1 text-sm text-right focus:outline-none focus:ring-1 focus:ring-primary-500"
+                class="w-20 border border-gray-300 rounded-md px-2 py-1 text-sm text-right focus:outline-none focus:ring-1 focus:ring-primary-500"
               />
-              <span class="text-xs text-slate-500 w-8 shrink-0">{{ line.unit }}</span>
+              <span class="text-xs text-gray-500 w-8 shrink-0">{{ line.unit }}</span>
               <button
                 type="button"
-                class="p-1 text-slate-300 hover:text-red-500 transition-colors shrink-0"
+                class="p-1 text-gray-300 hover:text-red-500 transition-colors shrink-0"
                 @click="removeInvLine(idx)"
               >
                 <X class="w-4 h-4" />
               </button>
             </div>
-            <p class="text-xs text-slate-400">{{ invLines.length }} producto{{ invLines.length !== 1 ? 's' : '' }} seleccionado{{ invLines.length !== 1 ? 's' : '' }}</p>
+            <p class="text-xs text-gray-500">{{ invLines.length }} producto{{ invLines.length !== 1 ? 's' : '' }} seleccionado{{ invLines.length !== 1 ? 's' : '' }}</p>
           </div>
-          <p v-else class="text-xs text-slate-400">Ningún producto seleccionado — busca arriba para agregar.</p>
+          <p v-else class="text-xs text-gray-500">Ningún producto seleccionado — busca arriba para agregar.</p>
         </div>
 
         <!-- Foto factura -->
         <div>
-          <label class="block text-sm font-medium text-slate-700 mb-1">Foto de factura</label>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Foto de factura</label>
           <div
-            class="border-2 border-dashed border-slate-300 rounded-lg p-4 text-center hover:border-primary-400 transition-colors cursor-pointer relative"
+            class="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-primary-400 transition-colors cursor-pointer relative"
             @click="($refs.fotoInput as HTMLInputElement).click()"
           >
             <input
@@ -415,12 +432,12 @@ const lightboxUrl = ref<string | null>(null)
             />
             <div v-if="fotoPreview" class="relative">
               <img :src="fotoPreview" class="max-h-40 mx-auto rounded-lg object-contain" alt="Preview" />
-              <p class="text-xs text-slate-400 mt-2">Toca para cambiar la foto</p>
+              <p class="text-xs text-gray-500 mt-2">Toca para cambiar la foto</p>
             </div>
             <div v-else class="py-4">
-              <Receipt class="w-8 h-8 mx-auto text-slate-300 mb-2" />
-              <p class="text-sm text-slate-500">Toca para tomar foto o seleccionar</p>
-              <p class="text-xs text-slate-400 mt-1">JPG, PNG, HEIC</p>
+              <Receipt class="w-8 h-8 mx-auto text-gray-300 mb-2" />
+              <p class="text-sm text-gray-500">Toca para tomar foto o seleccionar</p>
+              <p class="text-xs text-gray-500 mt-1">JPG, PNG, HEIC</p>
             </div>
           </div>
         </div>

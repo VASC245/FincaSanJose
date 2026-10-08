@@ -1,44 +1,44 @@
 <script setup lang="ts">
 import type { Component } from 'vue'
+import { ChevronRight } from 'lucide-vue-next'
 
-withDefaults(
+// Cifra con etiqueta. Si recibe `to`, toda la tarjeta lleva a esa pantalla.
+const props = withDefaults(
   defineProps<{
     title: string
     value: string | number
     subtitle?: string
     icon?: Component
-    iconClass?: string
-    trend?: 'up' | 'down' | 'neutral'
-    trendValue?: string
-    color?: 'green' | 'blue' | 'yellow' | 'red' | 'purple' | 'orange'
+    tone?: 'neutral' | 'positive' | 'negative'
+    to?: string
   }>(),
-  { color: 'green' }
+  { tone: 'neutral' }
 )
 
-const colorMap = {
-  green: 'bg-primary-50 text-primary-600',
-  blue: 'bg-blue-50 text-blue-600',
-  yellow: 'bg-yellow-50 text-yellow-600',
-  red: 'bg-red-50 text-red-600',
-  purple: 'bg-purple-50 text-purple-600',
-  orange: 'bg-orange-50 text-orange-600'
+const valueTone = {
+  neutral: 'text-gray-900',
+  positive: 'text-emerald-700',
+  negative: 'text-red-700'
 }
 </script>
 
 <template>
-  <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-5 flex items-start gap-4">
-    <div
-      v-if="icon"
-      class="rounded-xl p-3 shrink-0"
-      :class="colorMap[color]"
-    >
-      <component :is="icon" class="w-6 h-6" />
-    </div>
-
-    <div class="min-w-0 flex-1">
-      <p class="text-sm text-gray-500 truncate">{{ title }}</p>
-      <p class="text-2xl font-bold text-gray-900 mt-0.5">{{ value }}</p>
-      <p v-if="subtitle" class="text-xs text-gray-400 mt-0.5">{{ subtitle }}</p>
-    </div>
-  </div>
+  <component
+    :is="props.to ? 'RouterLink' : 'div'"
+    :to="props.to"
+    :class="props.to ? 'card-link group' : 'card'"
+    class="flex flex-col gap-1 min-w-0"
+  >
+    <p class="stat-label flex items-start gap-1.5">
+      <component :is="icon" v-if="icon" class="w-4 h-4 shrink-0 text-gray-500" aria-hidden="true" />
+      <span class="line-clamp-2 leading-4">{{ title }}</span>
+      <ChevronRight
+        v-if="props.to"
+        class="w-3.5 h-3.5 ml-auto shrink-0 text-gray-400 transition-transform duration-150 group-hover:translate-x-0.5"
+        aria-hidden="true"
+      />
+    </p>
+    <p class="stat-value truncate" :class="valueTone[tone]">{{ value }}</p>
+    <p v-if="subtitle" class="stat-sub">{{ subtitle }}</p>
+  </component>
 </template>

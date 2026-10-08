@@ -6,6 +6,7 @@ import BaseBadge from '@/components/shared/BaseBadge.vue'
 import BaseButton from '@/components/shared/BaseButton.vue'
 import BaseInput from '@/components/shared/BaseInput.vue'
 import PregnancyBadge from '@/components/cattle/PregnancyBadge.vue'
+import ParentsEditor from '@/components/animals/ParentsEditor.vue'
 import VaccinationList from '@/components/animals/VaccinationList.vue'
 import LitterList from '@/components/pigs/LitterList.vue'
 import BcsSection from '@/components/animals/BcsSection.vue'
@@ -146,20 +147,6 @@ async function removeInseminationRecord(record: InseminationRecord) {
   inseminationHistory.value = inseminationHistory.value.filter(r => r.id !== record.id)
 }
 
-async function clearPregnancy() {
-  if (!animal.value) return
-  if (!confirm('¿Registrar parto y cerrar la preñez?')) return
-  try {
-    const updated = await upsertPigDetail(animal.value.id, {
-      is_pregnant: false,
-      service_date: null,
-      expected_birth: null,
-      litter_count: (animal.value.pig_detail?.litter_count ?? 0) + 1
-    })
-    animal.value = { ...animal.value, pig_detail: updated }
-  } catch (e) { alert('Error: ' + (e as Error).message) }
-}
-
 async function undoPregnancyConfirmation() {
   if (!animal.value) return
   if (!confirm('¿Volver esta inseminación a "Pendiente de confirmación"? El animal quedará como no preñado hasta que confirmes de nuevo.')) return
@@ -193,9 +180,29 @@ const heatForm = reactive({
   saving: false
 })
 
+// ─── Padres ────────────────────────────────────────────────────────────────────
+
+const mother = ref<Animal | null>(null)
+const father = ref<Animal | null>(null)
+
+async function loadParents() {
+  const a = animal.value
+  if (!a) return
+  ;[mother.value, father.value] = await Promise.all([
+    a.mother_id ? animalsStore.getAnimal(a.mother_id).then(r => r ?? null) : Promise.resolve(null),
+    a.father_id ? animalsStore.getAnimal(a.father_id).then(r => r ?? null) : Promise.resolve(null)
+  ])
+}
+
+function onParentsUpdated(updated: Animal) {
+  animal.value = updated
+  loadParents()
+}
+
 onMounted(async () => {
   animal.value = (await animalsStore.getAnimal(route.params.id as string)) ?? null
   loading.value = false
+  loadParents()
   if (animal.value) {
     weightLoading.value = true
     fetchWeightRecords(animal.value.id)
@@ -345,25 +352,25 @@ function daysLabel(days: number): string {
       </div>
     </div>
 
-    <div v-if="loading" class="card text-center py-12 text-gray-400">Cargando...</div>
+    <div v-if="loading" class="card-empty">Cargando...</div>
 
     <template v-else-if="animal">
       <div class="card">
         <div class="grid grid-cols-2 sm:grid-cols-3 gap-4">
           <div>
-            <p class="text-xs text-gray-500 uppercase tracking-wide">Estado</p>
+            <p class="field-label">Estado</p>
             <BaseBadge :variant="statusVariant[animal.status]" class="mt-1">
               {{ statusLabel[animal.status] }}
             </BaseBadge>
           </div>
           <div>
-            <p class="text-xs text-gray-500 uppercase tracking-wide">Sexo</p>
+            <p class="field-label">Sexo</p>
             <BaseBadge :variant="animal.sex === 'female' ? 'pink' : 'blue'" class="mt-1">
               {{ animal.sex === 'female' ? 'Hembra' : 'Macho' }}
             </BaseBadge>
           </div>
           <div v-if="isFemale">
-            <p class="text-xs text-gray-500 uppercase tracking-wide">Preñez</p>
+            <p class="field-label">Preñez</p>
             <PregnancyBadge
               :is-pregnant="!!detail?.is_pregnant"
               :expected-date="detail?.expected_birth"
@@ -371,11 +378,11 @@ function daysLabel(days: number): string {
             />
           </div>
           <div>
-            <p class="text-xs text-gray-500 uppercase tracking-wide">Nacimiento</p>
-            <p class="text-sm text-gray-800 font-medium mt-0.5">{{ formatDate(animal.birth_date) }}</p>
+            <p class="field-label">Nacimiento</p>
+            <p class="field-value">{{ formatDate(animal.birth_date) }}</p>
           </div>
           <div>
-            <p class="text-xs text-gray-500 uppercase tracking-wide">Etapa</p>
+            <p class="field-label">Etapa</p>
             <div class="mt-1 flex items-center gap-2 flex-wrap">
               <span
                 v-if="calcPigStage(animal.birth_date)"
@@ -384,8 +391,8 @@ function daysLabel(days: number): string {
               >
                 {{ stageConfig[calcPigStage(animal.birth_date)!].label }}
               </span>
-              <span v-else class="text-sm text-gray-400">—</span>
-              <span v-if="pigAgeLabel(animal.birth_date)" class="text-xs text-gray-400">
+              <span v-else class="text-sm text-gray-500">—</span>
+              <span v-if="pigAgeLabel(animal.birth_date)" class="text-xs text-gray-500">
                 {{ pigAgeLabel(animal.birth_date) }}
               </span>
             </div>
@@ -393,15 +400,17 @@ function daysLabel(days: number): string {
         </div>
 
         <div v-if="animal.notes" class="mt-4 pt-4 border-t border-gray-100">
-          <p class="text-xs text-gray-500 uppercase tracking-wide mb-1">Notas</p>
+          <p class="field-label mb-1">Notas</p>
           <p class="text-sm text-gray-700">{{ animal.notes }}</p>
         </div>
       </div>
 
+      <ParentsEditor :animal="animal" :mother="mother" :father="father" @updated="onParentsUpdated" />
+
       <!-- Gestación e inseminaciones (hembras) -->
       <div v-if="isFemale" class="card space-y-4">
         <div class="flex items-center justify-between">
-          <h3 class="text-sm font-semibold text-gray-700 flex items-center gap-2">
+          <h3 class="card-title">
             <Baby class="w-4 h-4 text-purple-500" /> Gestación e Inseminaciones
           </h3>
           <BaseButton
@@ -414,7 +423,7 @@ function daysLabel(days: number): string {
         </div>
 
         <!-- Estado: preñada -->
-        <div v-if="detail?.is_pregnant" class="rounded-xl bg-purple-50 border border-purple-100 p-4 space-y-3">
+        <div v-if="detail?.is_pregnant" class="rounded-lg bg-purple-50 p-4 space-y-3">
           <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
             <div>
               <p class="text-xs text-purple-500 font-semibold uppercase tracking-wide">Fecha servicio</p>
@@ -446,7 +455,8 @@ function daysLabel(days: number): string {
             <BaseButton variant="secondary" size="sm" @click="undoPregnancyConfirmation">
               Volver a pendiente
             </BaseButton>
-            <BaseButton variant="secondary" size="sm" @click="clearPregnancy">
+            <!-- El parto se registra como camada: el trigger cierra la preñez y suma la camada una sola vez -->
+            <BaseButton variant="secondary" size="sm" @click="router.push(`/pigs/${animal.id}/litter/new`)">
               Registrar parto
             </BaseButton>
           </div>
@@ -457,7 +467,7 @@ function daysLabel(days: number): string {
           <div
             v-for="r in inseminationHistory.filter(x => x.pregnancy_confirmed === null)"
             :key="'pending-' + r.id"
-            class="rounded-xl bg-amber-50 border border-amber-200 p-4 space-y-3"
+            class="rounded-lg bg-amber-50 ring-1 ring-amber-200 p-4 space-y-3"
           >
             <div class="flex items-center gap-2">
               <span class="text-base">⏳</span>
@@ -492,12 +502,12 @@ function daysLabel(days: number): string {
         <!-- No preñada y sin pendientes -->
         <p v-if="!detail?.is_pregnant && !showPregnancyForm && !inseminHistLoading
               && !inseminationHistory.filter(x => x.pregnancy_confirmed === null).length"
-          class="text-sm text-gray-400 text-center py-2">
+          class="text-sm text-gray-500 text-center py-2">
           Sin preñez activa registrada.
         </p>
 
         <!-- Formulario registro servicio -->
-        <div v-if="showPregnancyForm" class="rounded-xl border border-purple-100 bg-purple-50 p-4 space-y-4">
+        <div v-if="showPregnancyForm" class="inset space-y-4">
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <BaseInput
               v-model="pregnancyForm.service_date"
@@ -540,9 +550,9 @@ function daysLabel(days: number): string {
         </div>
 
         <!-- Historial de inseminaciones -->
-        <div v-if="inseminHistLoading" class="text-sm text-gray-400 text-center py-2">Cargando historial...</div>
+        <div v-if="inseminHistLoading" class="text-sm text-gray-500 text-center py-2">Cargando historial...</div>
         <div v-else-if="inseminationHistory.length > 0" class="pt-2 border-t border-gray-100 space-y-2">
-          <p class="text-xs font-semibold text-gray-400 uppercase tracking-wide">Historial de inseminaciones</p>
+          <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Historial de inseminaciones</p>
           <div class="space-y-2">
             <div
               v-for="r in inseminationHistory"
@@ -576,7 +586,7 @@ function daysLabel(days: number): string {
                   <p v-if="r.semen_source" class="text-xs text-gray-500">
                     Verraco: <span class="font-medium text-gray-700">{{ r.semen_source }}</span>
                   </p>
-                  <p v-if="r.expected_birth" class="text-xs text-gray-400">
+                  <p v-if="r.expected_birth" class="text-xs text-gray-500">
                     Parto estimado: {{ formatDate(r.expected_birth) }}
                   </p>
                   <p v-if="r.pregnancy_confirmed && r.pregnancy_confirmed_date" class="text-xs text-purple-600">
@@ -612,7 +622,7 @@ function daysLabel(days: number): string {
           </div>
         </div>
 
-        <div v-if="detail?.litter_count" class="text-xs text-gray-400 text-right">
+        <div v-if="detail?.litter_count" class="text-xs text-gray-500 text-right">
           Camadas totales: <span class="font-semibold text-gray-600">{{ detail.litter_count }}</span>
         </div>
       </div>
@@ -625,7 +635,7 @@ function daysLabel(days: number): string {
       <!-- Celos (hembras) -->
       <div v-if="isFemale" class="card space-y-4">
         <div class="flex items-center justify-between">
-          <h3 class="text-sm font-semibold text-gray-700 flex items-center gap-2">
+          <h3 class="card-title">
             <Heart class="w-4 h-4 text-rose-500" /> Registros de celo
           </h3>
           <BaseButton size="sm" @click="showHeatForm = !showHeatForm">
@@ -634,7 +644,7 @@ function daysLabel(days: number): string {
         </div>
 
         <!-- Formulario nuevo celo -->
-        <div v-if="showHeatForm" class="border border-rose-100 bg-rose-50 rounded-xl p-4 space-y-3">
+        <div v-if="showHeatForm" class="inset space-y-3">
           <BaseInput v-model="heatForm.observed_date" label="Fecha del celo" type="date" required />
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">Notas</label>
@@ -646,12 +656,12 @@ function daysLabel(days: number): string {
           </div>
         </div>
 
-        <div v-if="heatLoading" class="text-center py-6 text-sm text-gray-400">Cargando...</div>
-        <p v-else-if="!heatRecords.length" class="text-center py-4 text-sm text-gray-400">Sin registros de celo.</p>
+        <div v-if="heatLoading" class="text-center py-6 text-sm text-gray-500">Cargando...</div>
+        <p v-else-if="!heatRecords.length" class="text-center py-4 text-sm text-gray-500">Sin registros de celo.</p>
 
         <div v-else class="space-y-3">
           <div v-for="r in heatRecords" :key="r.id"
-            class="rounded-xl border border-gray-100 bg-white p-4 space-y-3">
+            class="rounded-lg border border-gray-200 bg-white p-4 space-y-3">
             <div class="flex items-start justify-between">
               <div>
                 <p class="text-sm font-semibold text-gray-800">Celo observado: {{ formatDate(r.observed_date) }}</p>
@@ -675,7 +685,7 @@ function daysLabel(days: number): string {
                 <p class="text-sm font-bold mt-0.5" :class="daysUntil(calcNextHeat(r.observed_date)) < 0 ? 'text-gray-700' : 'text-amber-800'">
                   {{ formatDate(calcNextHeat(r.observed_date)) }}
                 </p>
-                <p class="text-xs" :class="daysUntil(calcNextHeat(r.observed_date)) < 0 ? 'text-gray-400' : 'text-amber-600'">
+                <p class="text-xs" :class="daysUntil(calcNextHeat(r.observed_date)) < 0 ? 'text-gray-500' : 'text-amber-600'">
                   {{ daysLabel(daysUntil(calcNextHeat(r.observed_date))) }}
                 </p>
               </div>
@@ -693,7 +703,7 @@ function daysLabel(days: number): string {
       <div class="card space-y-4">
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-2 flex-wrap">
-            <h3 class="text-sm font-semibold text-gray-700 flex items-center gap-2">
+            <h3 class="card-title">
               <Scale class="w-4 h-4 text-orange-500" /> Pesos y ganancia diaria
             </h3>
             <span
@@ -730,7 +740,7 @@ function daysLabel(days: number): string {
           </div>
         </div>
 
-        <div v-if="showWeightForm" class="rounded-xl border border-orange-100 bg-orange-50 p-4 space-y-3">
+        <div v-if="showWeightForm" class="inset space-y-3">
           <div class="grid grid-cols-2 gap-3">
             <BaseInput v-model="weightForm.recorded_date" label="Fecha" type="date" required />
             <BaseInput v-model="weightForm.weight_kg" label="Peso (kg)" type="number" placeholder="0.0" required />
@@ -742,8 +752,8 @@ function daysLabel(days: number): string {
           </div>
         </div>
 
-        <div v-if="weightLoading" class="text-center py-4 text-sm text-gray-400">Cargando pesos...</div>
-        <p v-else-if="!weightRecords.length" class="text-center py-3 text-sm text-gray-400">
+        <div v-if="weightLoading" class="text-center py-4 text-sm text-gray-500">Cargando pesos...</div>
+        <p v-else-if="!weightRecords.length" class="text-center py-3 text-sm text-gray-500">
           Sin pesajes. Registra al menos dos para calcular la ganancia diaria.
         </p>
         <div v-else class="rounded-lg border border-gray-200 overflow-hidden">
@@ -786,6 +796,6 @@ function daysLabel(days: number): string {
       </div>
     </template>
 
-    <div v-else class="card text-center py-12 text-gray-400">Animal no encontrado.</div>
+    <div v-else class="card-empty">Animal no encontrado.</div>
   </div>
 </template>

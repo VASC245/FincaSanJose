@@ -73,7 +73,7 @@ const LEVEL_ICON: Record<string, any> = {
         <div class="flex items-center justify-between px-4 py-3 border-b border-slate-100">
           <span class="font-semibold text-slate-800 text-sm">
             Alertas
-            <span v-if="totalCount() > 0" class="text-slate-400 font-normal">({{ totalCount() }})</span>
+            <span v-if="totalCount() > 0" class="text-slate-500 font-normal">({{ totalCount() }})</span>
           </span>
           <div class="flex gap-1">
             <button
@@ -81,21 +81,21 @@ const LEVEL_ICON: Record<string, any> = {
               title="Actualizar"
               @click="load"
             >
-              <RefreshCw :class="['w-3.5 h-3.5 text-slate-400', loading && 'animate-spin']" />
+              <RefreshCw :class="['w-3.5 h-3.5 text-slate-500', loading && 'animate-spin']" />
             </button>
             <button class="p-1.5 rounded-lg hover:bg-slate-100 transition-colors" @click="open = false">
-              <X class="w-3.5 h-3.5 text-slate-400" />
+              <X class="w-3.5 h-3.5 text-slate-500" />
             </button>
           </div>
         </div>
 
         <!-- Lista -->
         <div class="max-h-[400px] overflow-y-auto">
-          <div v-if="loading" class="py-8 text-center text-sm text-slate-400">Cargando...</div>
+          <div v-if="loading" class="py-8 text-center text-sm text-slate-500">Cargando...</div>
 
           <div v-else-if="alerts.length === 0" class="py-10 text-center">
             <Bell class="w-8 h-8 text-slate-200 mx-auto mb-2" />
-            <p class="text-sm text-slate-400">Sin alertas activas</p>
+            <p class="text-sm text-slate-500">Sin alertas activas</p>
           </div>
 
           <button

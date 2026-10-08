@@ -75,6 +75,8 @@ async function handleSubmit() {
       await animalsStore.addAnimal(payload)
     }
 
+    // El trigger de camadas ya cerró la preñez y sumó la camada: traer la cerda actualizada
+    await animalsStore.refreshAnimal(mother.value.id)
     router.push(`/pigs/${mother.value.id}`)
   } catch (e) {
     alert('Error: ' + (e as Error).message)
@@ -101,7 +103,7 @@ async function handleSubmit() {
     <form class="space-y-4" @submit.prevent="handleSubmit">
       <!-- Datos de la camada -->
       <div class="card space-y-4">
-        <h2 class="text-sm font-semibold text-gray-700">Datos del parto</h2>
+        <h2 class="card-title">Datos del parto</h2>
 
         <BaseInput v-model="form.birth_date" label="Fecha de parto" type="date" required />
 
@@ -137,8 +139,8 @@ async function handleSubmit() {
       <div class="card space-y-3">
         <div class="flex items-center justify-between">
           <div>
-            <h2 class="text-sm font-semibold text-gray-700">Lechones</h2>
-            <p class="text-xs text-gray-400 mt-0.5">
+            <h2 class="card-title">Lechones</h2>
+            <p class="text-xs text-gray-500 mt-0.5">
               {{ pigletCount }} de {{ bornAlive }} vivos registrados
             </p>
           </div>
@@ -174,7 +176,7 @@ async function handleSubmit() {
             </select>
             <button
               type="button"
-              class="flex items-center justify-center w-9 h-9 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+              class="flex items-center justify-center w-9 h-9 rounded-lg text-gray-500 hover:text-red-500 hover:bg-red-50 transition-colors"
               @click="removePiglet(i)"
             >
               <Trash2 class="w-4 h-4" />
@@ -182,7 +184,7 @@ async function handleSubmit() {
           </div>
         </div>
 
-        <div v-else class="text-center py-6 text-sm text-gray-400 border border-dashed border-gray-200 rounded-lg">
+        <div v-else class="text-center py-6 text-sm text-gray-500 border border-dashed border-gray-200 rounded-lg">
           Ningún lechón registrado — presiona "Agregar lechón" para comenzar
         </div>
       </div>

@@ -59,7 +59,8 @@ onMounted(() => {
 
 function handleSubmit() {
   if (!form.title.trim()) return
-  emit('submit', { ...form })
+  // Una fecha borrada llega como '' y Postgres la rechaza: se manda null
+  emit('submit', { ...form, due_date: form.due_date || null, animal_id: form.animal_id || null })
 }
 </script>
 

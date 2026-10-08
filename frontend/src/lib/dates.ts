@@ -22,9 +22,11 @@ export function addDaysToDate(dateStr: string, days: number): string {
 
 /** Days from today to a YYYY-MM-DD target (negative if past). */
 export function daysFromToday(dateStr: string): number {
+  // Ambas a medianoche local: hoy = 0, mañana = 1, ayer = -1.
+  // (Antes el destino iba a mediodía y Math.round(0.5) sumaba un día de más.)
   const todayMidnight = new Date()
   todayMidnight.setHours(0, 0, 0, 0)
-  const target = new Date(`${dateStr}T12:00:00`)
+  const target = new Date(`${dateStr}T00:00:00`)
   return Math.round((target.getTime() - todayMidnight.getTime()) / 86_400_000)
 }
 

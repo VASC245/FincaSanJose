@@ -89,7 +89,7 @@ const totalPending = computed(() => tasksStore.pending.length)
     </div>
 
     <!-- Loading -->
-    <div v-if="tasksStore.loading" class="text-center py-12 text-gray-400">Cargando tareas...</div>
+    <div v-if="tasksStore.loading" class="text-center py-12 text-gray-500">Cargando tareas...</div>
 
     <!-- Kanban-style columns -->
     <div v-else class="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -101,7 +101,7 @@ const totalPending = computed(() => tasksStore.pending.length)
       >
         <!-- Column header -->
         <div class="flex items-center justify-between">
-          <h2 class="text-sm font-semibold text-gray-700">{{ col.label }}</h2>
+          <h2 class="card-title">{{ col.label }}</h2>
           <span class="text-xs bg-white border border-gray-200 rounded-full px-2 py-0.5 text-gray-500">
             {{ tasksForColumn(col.status).length }}
           </span>
@@ -110,7 +110,7 @@ const totalPending = computed(() => tasksStore.pending.length)
         <!-- Empty state -->
         <div
           v-if="!tasksForColumn(col.status).length"
-          class="text-center py-6 text-xs text-gray-400"
+          class="text-center py-6 text-xs text-gray-500"
         >
           Sin tareas
         </div>
@@ -127,7 +127,7 @@ const totalPending = computed(() => tasksStore.pending.length)
         <!-- Quick move buttons (for non-completed columns) -->
         <div v-if="col.status !== 'completed'" class="text-center pt-1">
           <button
-            class="text-xs text-gray-400 hover:text-gray-600"
+            class="text-xs text-gray-500 hover:text-gray-600"
             @click="openCreate"
           >
             + Agregar tarea

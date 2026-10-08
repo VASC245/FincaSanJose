@@ -54,13 +54,14 @@ export async function syncNow(): Promise<void> {
         return
       }
 
-      if (res.ok || res.status === 409) {
-        // 409 = ya estaba aplicado (id duplicado de un reintento) — darlo por hecho
+      // 409 solo cuenta como "ya aplicado" si chocó con la llave primaria (mismo id
+      // de un reintento). Otro 409 (llave foránea, valor único) es un rechazo real.
+      const text = res.ok ? '' : await res.text().catch(() => '')
+      if (res.ok || (res.status === 409 && text.includes('_pkey'))) {
         if (item.seq != null) await queueDelete(item.seq)
         sent++
       } else if (res.status >= 400 && res.status < 500) {
         // Rechazo definitivo del servidor: apartarlo para no trancar la cola
-        const text = await res.text().catch(() => '')
         await failedAdd({ ...item, error: `HTTP ${res.status}: ${text.slice(0, 300)}` })
         if (item.seq != null) await queueDelete(item.seq)
         console.warn('[offline] Cambio rechazado por el servidor:', item.method, item.url, text)

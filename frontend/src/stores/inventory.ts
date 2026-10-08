@@ -55,7 +55,11 @@ export const useInventoryStore = defineStore('inventory', () => {
   async function editItem(id: string, payload: Partial<InventoryItemFormData>): Promise<InventoryItem> {
     const updated = await inventoryService.updateItem(id, payload)
     const idx = items.value.findIndex((i) => i.id === id)
-    if (idx !== -1) items.value[idx] = updated
+    if (idx !== -1) {
+      // Fusionar: la respuesta offline (sintética) solo trae los campos cambiados
+      items.value[idx] = { ...items.value[idx], ...updated }
+      return items.value[idx]
+    }
     return updated
   }
 

@@ -198,20 +198,21 @@ async function saveEdit(litterId: string) {
 // ─── Utils ────────────────────────────────────────────────────────────────────
 
 function formatDate(d: string) {
-  return new Date(d).toLocaleDateString('es', { day: '2-digit', month: 'short', year: 'numeric' })
+  // Fecha de calendario: a mediodía local para que no salga un día antes (UTC-5)
+  return new Date(`${d.slice(0, 10)}T12:00:00`).toLocaleDateString('es', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 </script>
 
 <template>
   <div class="space-y-3">
-    <h3 class="text-sm font-semibold text-gray-700 flex items-center gap-2">
+    <h3 class="card-title">
       <Baby class="w-4 h-4 text-pink-500" />
       Camadas registradas
     </h3>
 
-    <div v-if="pigsStore.loading" class="text-center py-6 text-sm text-gray-400">Cargando...</div>
+    <div v-if="pigsStore.loading" class="text-center py-6 text-sm text-gray-500">Cargando...</div>
 
-    <div v-else-if="!pigsStore.litters.length" class="text-center py-6 text-sm text-gray-400">
+    <div v-else-if="!pigsStore.litters.length" class="text-center py-6 text-sm text-gray-500">
       No hay camadas registradas.
     </div>
 
@@ -219,7 +220,7 @@ function formatDate(d: string) {
       <div
         v-for="litter in pigsStore.litters"
         :key="litter.id"
-        class="rounded-xl border border-gray-100 overflow-hidden"
+        class="rounded-xl border border-gray-200 overflow-hidden"
       >
         <!-- Cabecera — modo edición -->
         <div
@@ -278,7 +279,7 @@ function formatDate(d: string) {
           <div class="flex items-center gap-3">
             <component
               :is="expanded[litter.id] ? ChevronDown : ChevronRight"
-              class="w-4 h-4 text-gray-400 shrink-0"
+              class="w-4 h-4 text-gray-500 shrink-0"
             />
             <div>
               <p class="text-sm font-medium text-gray-800">{{ formatDate(litter.birth_date) }}</p>
@@ -289,14 +290,14 @@ function formatDate(d: string) {
           </div>
           <div class="flex items-center gap-2">
             <button
-              class="p-1.5 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
+              class="p-1.5 text-gray-500 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
               title="Editar camada"
               @click.stop="startEditLitter(litter)"
             >
               <Pencil class="w-3.5 h-3.5" />
             </button>
             <button
-              class="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+              class="p-1.5 text-gray-500 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
               title="Eliminar camada"
               :disabled="deletingId === litter.id"
               @click.stop="removeLitter(litter.id, litter.birth_date)"
@@ -306,7 +307,7 @@ function formatDate(d: string) {
             </button>
             <div class="text-right ml-1">
               <span class="text-xl font-bold text-pink-500">{{ litter.born_alive }}</span>
-              <p class="text-xs text-gray-400">vivos</p>
+              <p class="text-xs text-gray-500">vivos</p>
             </div>
           </div>
         </button>
@@ -315,7 +316,7 @@ function formatDate(d: string) {
         <div v-if="expanded[litter.id] && editingLitterId !== litter.id" class="border-t border-gray-100 bg-gray-50 px-4 py-3 space-y-3">
           <p v-if="litter.notes" class="text-xs text-gray-500 italic">{{ litter.notes }}</p>
 
-          <div v-if="loadingPiglets[litter.id]" class="text-center py-3 text-xs text-gray-400">
+          <div v-if="loadingPiglets[litter.id]" class="text-center py-3 text-xs text-gray-500">
             Cargando lechones...
           </div>
 
@@ -351,7 +352,7 @@ function formatDate(d: string) {
                       <Check v-else class="w-3.5 h-3.5" />
                     </button>
                     <button
-                      class="flex items-center justify-center w-8 h-8 rounded-lg text-gray-400 hover:bg-gray-100 shrink-0"
+                      class="flex items-center justify-center w-8 h-8 rounded-lg text-gray-500 hover:bg-gray-100 shrink-0"
                       @click="cancelEdit"
                     >
                       <X class="w-3.5 h-3.5" />
@@ -367,7 +368,7 @@ function formatDate(d: string) {
                       {{ piglet.sex === 'female' ? 'Hembra' : 'Macho' }}
                     </span>
                     <button
-                      class="p-1.5 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-colors shrink-0"
+                      class="p-1.5 text-gray-500 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-colors shrink-0"
                       @click="startEdit(piglet)"
                     >
                       <Pencil class="w-3.5 h-3.5" />
@@ -377,7 +378,7 @@ function formatDate(d: string) {
               </div>
             </div>
 
-            <p v-else class="text-xs text-gray-400 italic">Sin lechones registrados aún.</p>
+            <p v-else class="text-xs text-gray-500 italic">Sin lechones registrados aún.</p>
 
             <div class="pt-1">
               <p class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Agregar lechón</p>

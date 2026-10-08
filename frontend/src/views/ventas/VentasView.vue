@@ -114,7 +114,7 @@ const totalFiltrado = computed(() =>
 const TIPOS: Record<VentaTipo, { label: string; color: string }> = {
   leche:  { label: 'Leche',  color: 'bg-blue-100 text-blue-800' },
   animal: { label: 'Animal', color: 'bg-amber-100 text-amber-800' },
-  otro:   { label: 'Otro',   color: 'bg-slate-100 text-slate-700' }
+  otro:   { label: 'Otro',   color: 'bg-gray-100 text-gray-700' }
 }
 
 function animalLabel(id: string | null) {
@@ -138,8 +138,8 @@ function fmtFecha(s: string) {
     <!-- Header -->
     <div class="flex items-center justify-between">
       <div>
-        <h1 class="text-2xl font-bold text-slate-900">Ventas</h1>
-        <p class="text-sm text-slate-500 mt-0.5">Ingresos de la finca: leche, animales y otros</p>
+        <h1 class="text-2xl font-bold text-gray-900">Ventas</h1>
+        <p class="text-sm text-gray-500 mt-0.5">Ingresos de la finca: leche, animales y otros</p>
       </div>
       <BaseButton variant="primary" @click="openNew">
         <PlusCircle class="w-4 h-4 mr-1.5" />
@@ -148,35 +148,35 @@ function fmtFecha(s: string) {
     </div>
 
     <!-- Stats -->
-    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-      <StatCard title="Total ingresos" :value="fmt(store.total)" />
+    <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
+      <StatCard class="col-span-2 sm:col-span-1" title="Total ingresos" :value="fmt(store.total)" />
       <StatCard title="Registros" :value="String(store.ventas.length)" />
       <StatCard title="Filtrado actual" :value="fmt(totalFiltrado)" />
     </div>
 
     <!-- Filtros -->
-    <div class="flex flex-wrap gap-3 bg-white p-4 rounded-xl border border-slate-200">
+    <div class="card flex flex-wrap gap-3">
       <div class="flex flex-col gap-1">
-        <label class="text-xs font-medium text-slate-600">Tipo</label>
+        <label class="text-xs font-medium text-gray-600">Tipo</label>
         <select
           v-model="filtroTipo"
-          class="text-sm border border-slate-300 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary-500"
+          class="text-sm border border-gray-300 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary-500"
         >
           <option value="">Todos</option>
           <option v-for="(info, key) in TIPOS" :key="key" :value="key">{{ info.label }}</option>
         </select>
       </div>
       <div class="flex flex-col gap-1">
-        <label class="text-xs font-medium text-slate-600">Mes</label>
+        <label class="text-xs font-medium text-gray-600">Mes</label>
         <input
           v-model="filtroMes"
           type="month"
-          class="text-sm border border-slate-300 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary-500"
+          class="text-sm border border-gray-300 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary-500"
         />
       </div>
       <div class="flex items-end">
         <button
-          class="text-sm text-slate-500 hover:text-slate-800 underline"
+          class="text-sm text-gray-500 hover:text-gray-800 underline"
           @click="filtroTipo = ''; filtroMes = ''"
         >
           Limpiar
@@ -185,15 +185,15 @@ function fmtFecha(s: string) {
     </div>
 
     <!-- Loading -->
-    <div v-if="store.loading" class="text-center py-12 text-slate-400">Cargando...</div>
+    <div v-if="store.loading" class="text-center py-12 text-gray-500">Cargando...</div>
 
     <!-- Empty -->
     <div
       v-else-if="ventasFiltradas.length === 0"
-      class="text-center py-16 bg-white rounded-xl border border-slate-200"
+      class="card-empty"
     >
-      <HandCoins class="w-10 h-10 mx-auto text-slate-300 mb-3" />
-      <p class="text-slate-500">No hay ventas registradas</p>
+      <HandCoins class="w-10 h-10 mx-auto text-gray-300 mb-3" />
+      <p class="text-gray-500">No hay ventas registradas</p>
       <BaseButton variant="primary" class="mt-4" @click="openNew">Agregar primera</BaseButton>
     </div>
 
@@ -202,7 +202,7 @@ function fmtFecha(s: string) {
       <div
         v-for="v in ventasFiltradas"
         :key="v.id"
-        class="bg-white rounded-xl border border-slate-200 p-4 flex gap-4 items-start"
+        class="card flex gap-4 items-start"
       >
         <!-- Icono -->
         <div class="shrink-0 w-10 h-10 rounded-lg bg-emerald-50 flex items-center justify-center">
@@ -212,7 +212,7 @@ function fmtFecha(s: string) {
         <!-- Info -->
         <div class="flex-1 min-w-0">
           <div class="flex items-start justify-between gap-2">
-            <p class="font-semibold text-slate-900 truncate">{{ v.descripcion }}</p>
+            <p class="font-semibold text-gray-900 line-clamp-2 leading-snug">{{ v.descripcion }}</p>
             <span class="text-lg font-bold text-emerald-700 whitespace-nowrap">{{ fmt(v.monto) }}</span>
           </div>
           <div class="flex flex-wrap items-center gap-2 mt-1.5">
@@ -222,27 +222,29 @@ function fmtFecha(s: string) {
             >
               {{ TIPOS[v.tipo].label }}
             </span>
-            <span v-if="v.cantidad" class="text-xs text-slate-500">
+            <span v-if="v.cantidad" class="text-xs text-gray-500">
               {{ v.cantidad }} {{ v.unidad ?? '' }}
             </span>
-            <span v-if="animalLabel(v.animal_id)" class="text-xs text-slate-500">
+            <span v-if="animalLabel(v.animal_id)" class="text-xs text-gray-500">
               {{ animalLabel(v.animal_id) }}
             </span>
-            <span v-if="v.comprador" class="text-xs text-slate-500">→ {{ v.comprador }}</span>
-            <span class="text-xs text-slate-400">{{ fmtFecha(v.fecha) }}</span>
+            <span v-if="v.comprador" class="text-xs text-gray-500">→ {{ v.comprador }}</span>
+            <span class="text-xs text-gray-500">{{ fmtFecha(v.fecha) }}</span>
           </div>
         </div>
 
         <!-- Acciones -->
-        <div class="flex gap-1 shrink-0">
+        <div class="flex flex-col -my-1 -mr-1 shrink-0">
           <button
-            class="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors"
+            class="icon-btn"
+            aria-label="Editar"
             @click="openEdit(v)"
           >
             <Pencil class="w-4 h-4" />
           </button>
           <button
-            class="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-600 transition-colors"
+            class="icon-btn hover:text-red-700 hover:bg-red-50"
+            aria-label="Eliminar"
             @click="remove(v)"
           >
             <Trash2 class="w-4 h-4" />
@@ -256,11 +258,11 @@ function fmtFecha(s: string) {
       <form class="space-y-4" @submit.prevent="submit">
         <!-- Tipo -->
         <div>
-          <label class="block text-sm font-medium text-slate-700 mb-1">Tipo de venta *</label>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Tipo de venta *</label>
           <select
             v-model="form.tipo"
             required
-            class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
             @change="onTipoChange"
           >
             <option v-for="(info, key) in TIPOS" :key="key" :value="key">{{ info.label }}</option>
@@ -269,20 +271,20 @@ function fmtFecha(s: string) {
 
         <!-- Descripción -->
         <div>
-          <label class="block text-sm font-medium text-slate-700 mb-1">Descripción *</label>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Descripción *</label>
           <input
             v-model="form.descripcion"
             required
             type="text"
             placeholder="Ej: Venta de leche semana 32"
-            class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
           />
         </div>
 
         <!-- Monto + Fecha -->
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label class="block text-sm font-medium text-slate-700 mb-1">Monto *</label>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Monto *</label>
             <input
               v-model.number="form.monto"
               required
@@ -290,16 +292,16 @@ function fmtFecha(s: string) {
               min="0"
               step="0.01"
               placeholder="0"
-              class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
             />
           </div>
           <div>
-            <label class="block text-sm font-medium text-slate-700 mb-1">Fecha *</label>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Fecha *</label>
             <input
               v-model="form.fecha"
               required
               type="date"
-              class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
             />
           </div>
         </div>
@@ -307,53 +309,53 @@ function fmtFecha(s: string) {
         <!-- Cantidad + Unidad (leche / otro) -->
         <div v-if="form.tipo !== 'animal'" class="grid grid-cols-2 gap-3">
           <div>
-            <label class="block text-sm font-medium text-slate-700 mb-1">Cantidad</label>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Cantidad</label>
             <input
               v-model.number="form.cantidad"
               type="number"
               min="0"
               step="0.01"
               placeholder="Ej: 120"
-              class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
             />
           </div>
           <div>
-            <label class="block text-sm font-medium text-slate-700 mb-1">Unidad</label>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Unidad</label>
             <input
               v-model="form.unidad"
               type="text"
               placeholder="Ej: litros, kg"
-              class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
             />
           </div>
         </div>
 
         <!-- Animal vendido -->
         <div v-if="form.tipo === 'animal'" class="space-y-2">
-          <label class="block text-sm font-medium text-slate-700 mb-1">Animal</label>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Animal</label>
           <select
             v-model="form.animal_id"
-            class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
           >
             <option :value="null">— Sin especificar —</option>
             <option v-for="a in animalesActivos" :key="a.id" :value="a.id">
               {{ a.ear_tag ?? 'Sin arete' }}{{ a.name ? ` · ${a.name}` : '' }} ({{ a.species === 'cattle' ? 'bovino' : 'porcino' }})
             </option>
           </select>
-          <label v-if="!editing && form.animal_id" class="flex items-center gap-2 text-sm text-slate-600">
-            <input v-model="marcarVendido" type="checkbox" class="rounded border-slate-300" />
+          <label v-if="!editing && form.animal_id" class="flex items-center gap-2 text-sm text-gray-600">
+            <input v-model="marcarVendido" type="checkbox" class="rounded border-gray-300" />
             Marcar el animal como vendido
           </label>
         </div>
 
         <!-- Comprador -->
         <div>
-          <label class="block text-sm font-medium text-slate-700 mb-1">Comprador</label>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Comprador</label>
           <input
             v-model="form.comprador"
             type="text"
             placeholder="Ej: Lácteos El Valle (opcional)"
-            class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
           />
         </div>
 

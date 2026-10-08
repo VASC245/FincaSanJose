@@ -37,7 +37,8 @@ function onAdded(record: VaccinationRecord) {
 }
 
 function formatDate(d: string) {
-  return new Date(d).toLocaleDateString('es', { day: '2-digit', month: 'short', year: 'numeric' })
+  // Fecha de calendario: a mediodía local para que no salga un día antes (UTC-5)
+  return new Date(`${d.slice(0, 10)}T12:00:00`).toLocaleDateString('es', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
 onMounted(load)
@@ -46,7 +47,7 @@ onMounted(load)
 <template>
   <div class="space-y-4">
     <div class="flex items-center justify-between">
-      <h3 class="text-sm font-semibold text-gray-700 flex items-center gap-2">
+      <h3 class="card-title">
         <Syringe class="w-4 h-4 text-primary-500" />
         Historial de vacunas
       </h3>
@@ -55,13 +56,13 @@ onMounted(load)
       </BaseButton>
     </div>
 
-    <div v-if="loading" class="text-center py-6 text-sm text-gray-400">Cargando...</div>
+    <div v-if="loading" class="text-center py-6 text-sm text-gray-500">Cargando...</div>
 
-    <div v-else-if="!records.length" class="text-center py-6 text-sm text-gray-400">
+    <div v-else-if="!records.length" class="text-center py-6 text-sm text-gray-500">
       No hay registros de vacunas.
     </div>
 
-    <div v-else class="divide-y divide-gray-100 rounded-xl border border-gray-100 overflow-hidden">
+    <div v-else class="divide-y divide-gray-200 rounded-lg border border-gray-200 overflow-hidden">
       <div
         v-for="r in records"
         :key="r.id"
@@ -72,7 +73,7 @@ onMounted(load)
             {{ r.inventory_item?.name ?? r.vaccine?.name ?? 'Vacuna' }}
           </p>
           <p class="text-xs text-gray-500">Aplicado: {{ formatDate(r.applied_date) }}</p>
-          <p v-if="r.next_date" class="text-xs text-gray-400">
+          <p v-if="r.next_date" class="text-xs text-gray-500">
             Próxima: {{ formatDate(r.next_date) }}
           </p>
           <p v-if="r.milk_withdrawal_until" class="text-xs font-medium text-red-600">
@@ -82,7 +83,7 @@ onMounted(load)
         <div class="flex items-center gap-2">
           <BaseBadge v-if="r.applied_by" variant="blue">{{ r.applied_by }}</BaseBadge>
           <button
-            class="p-1 text-gray-400 hover:text-red-500 transition-colors"
+            class="p-1 text-gray-500 hover:text-red-500 transition-colors"
             @click="remove(r.id)"
           >
             <Trash2 class="w-4 h-4" />

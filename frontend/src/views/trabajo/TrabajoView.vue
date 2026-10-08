@@ -92,12 +92,12 @@ function badgeText(u: WorkUrgency) {
     </div>
 
     <!-- Loading -->
-    <div v-if="loading" class="text-center py-12 text-sm text-gray-400">
+    <div v-if="loading" class="text-center py-12 text-sm text-gray-500">
       Calculando el trabajo del día...
     </div>
 
     <!-- Error -->
-    <div v-else-if="error" class="card text-center py-8 text-sm text-red-600">
+    <div v-else-if="error" class="card-error">
       {{ error }}
     </div>
 

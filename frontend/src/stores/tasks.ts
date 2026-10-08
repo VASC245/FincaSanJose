@@ -37,7 +37,11 @@ export const useTasksStore = defineStore('tasks', () => {
   async function editTask(id: string, payload: Partial<TaskFormData>): Promise<Task> {
     const updated = await taskService.updateTask(id, payload)
     const idx = tasks.value.findIndex((t) => t.id === id)
-    if (idx !== -1) tasks.value[idx] = updated
+    if (idx !== -1) {
+      // Fusionar: la respuesta offline (sintética) solo trae los campos cambiados
+      tasks.value[idx] = { ...tasks.value[idx], ...updated }
+      return tasks.value[idx]
+    }
     return updated
   }
 

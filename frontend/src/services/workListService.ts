@@ -57,6 +57,7 @@ export async function fetchWorkLists(): Promise<WorkList[]> {
     { data: recentVaccinations },
     { data: dueTasks },
     retiros,
+    { data: inseminaciones },
   ] = await Promise.all([
     supabase
       .from('animals')
@@ -86,7 +87,22 @@ export async function fetchWorkLists(): Promise<WorkList[]> {
       .lte('due_date', today),
 
     fetchActiveMilkWithdrawals().catch(() => []),
+
+    // Inseminaciones/servicios del último año: el día 21 y las "vacías" salen de
+    // aquí (cattle_details/pig_details solo cambian al CONFIRMAR la preñez)
+    supabase
+      .from('insemination_records')
+      .select('animal_id, insemination_date, heat_check_date, pregnancy_confirmed')
+      .gte('insemination_date', localDateOffset(-365))
+      .order('insemination_date', { ascending: false }),
   ])
+
+  type Insem = { animal_id: string; insemination_date: string; heat_check_date: string | null; pregnancy_confirmed: boolean | null }
+  // Última inseminación de cada animal (vienen ordenadas de la más reciente)
+  const ultimaInsem = new Map<string, Insem>()
+  for (const r of (inseminaciones ?? []) as unknown as Insem[]) {
+    if (!ultimaInsem.has(r.animal_id)) ultimaInsem.set(r.animal_id, r)
+  }
 
   type AnimalRow = {
     id: string
@@ -160,15 +176,14 @@ export async function fetchWorkLists(): Promise<WorkList[]> {
   }
 
   // ── 3. Revisar preñez día 21 (retorno de celo post-servicio) ───────────────
+  // Servicios pendientes de confirmar cuyo día 21 cae entre hace 2 días y en 3 días
   const revisar: WorkItem[] = []
   for (const a of [...vacas, ...cerdas]) {
     const esVaca = a.species === 'cattle'
-    const d = esVaca ? a.cattle_detail : a.pig_detail
-    const servicio = esVaca
-      ? a.cattle_detail?.conception_date
-      : a.pig_detail?.service_date
-    if (!d?.is_pregnant || !servicio) continue
-    const fechaRevision = addDaysToDate(servicio, 21)
+    const r = ultimaInsem.get(a.id)
+    if (!r || r.pregnancy_confirmed !== null) continue
+    const servicio = r.insemination_date
+    const fechaRevision = r.heat_check_date ?? addDaysToDate(servicio, 21)
     const dias = daysFromToday(fechaRevision)
     if (dias < -2 || dias > 3) continue
     revisar.push({
@@ -187,6 +202,9 @@ export async function fetchWorkLists(): Promise<WorkList[]> {
   for (const v of vacas) {
     const d = v.cattle_detail
     if (d?.is_pregnant) continue
+    const ult = ultimaInsem.get(v.id)
+    // Servida hace poco y aún sin confirmar: no está "vacía", está esperando
+    if (ult && ult.pregnancy_confirmed === null && daysFromToday(ult.insemination_date) > -45) continue
     const esAdulta =
       (d?.birth_count ?? 0) > 0 ||
       (v.birth_date ? edadEnMeses(v.birth_date) >= EDAD_REPRODUCTIVA_MESES : false)
@@ -194,9 +212,9 @@ export async function fetchWorkLists(): Promise<WorkList[]> {
     vacias.push({
       id: `vacia-${v.id}`,
       label: `Vaca ${animalLabel(v)}`,
-      detail: d?.conception_date
-        ? `Último servicio el ${formatDate(d.conception_date)} — sin preñez confirmada`
-        : 'Sin servicio registrado — programar inseminación',
+      detail: ult
+        ? `Último servicio el ${formatDate(ult.insemination_date)}, sin preñez confirmada`
+        : 'Sin servicio registrado: programar inseminación',
       urgency: 'soon',
       link: `/cattle/${v.id}`,
     })
@@ -204,14 +222,16 @@ export async function fetchWorkLists(): Promise<WorkList[]> {
   for (const c of cerdas) {
     const d = c.pig_detail
     if (d?.is_pregnant) continue
+    const ult = ultimaInsem.get(c.id)
+    if (ult && ult.pregnancy_confirmed === null && daysFromToday(ult.insemination_date) > -30) continue
     const esReproductora = c.stage === 'reproduccion' || (d?.litter_count ?? 0) > 0
     if (!esReproductora) continue
     vacias.push({
       id: `vacia-${c.id}`,
       label: `Cerda ${animalLabel(c)}`,
-      detail: d?.service_date
-        ? `Último servicio el ${formatDate(d.service_date)} — sin preñez confirmada`
-        : 'Sin servicio registrado — programar monta o inseminación',
+      detail: ult
+        ? `Último servicio el ${formatDate(ult.insemination_date)}, sin preñez confirmada`
+        : 'Sin servicio registrado: programar monta o inseminación',
       urgency: 'soon',
       link: `/pigs/${c.id}`,
     })

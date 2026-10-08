@@ -10,7 +10,9 @@ import VaccinationList from '@/components/animals/VaccinationList.vue'
 import BcsSection from '@/components/animals/BcsSection.vue'
 import { useAnimalsStore } from '@/stores/animals'
 import { upsertCattleDetail } from '@/services/animalService'
-import { fetchMilkRecords, createMilkRecord, updateMilkRecord, deleteMilkRecord } from '@/services/milkService'
+import { fetchMilkRecords, createMilkRecord } from '@/services/milkService'
+import MilkCorrectionForm from '@/components/cattle/MilkCorrectionForm.vue'
+import ParentsEditor from '@/components/animals/ParentsEditor.vue'
 import {
   fetchInseminationRecords,
   createInseminationRecord,
@@ -20,7 +22,7 @@ import {
 } from '@/services/inseminationService'
 import { supabase } from '@/lib/supabase'
 import { localToday, addDaysToDate, daysFromToday } from '@/lib/dates'
-import type { Animal, MilkRecord } from '@/types'
+import type { Animal, MilkRecord, MilkSession } from '@/types'
 
 const route = useRoute()
 const router = useRouter()
@@ -41,20 +43,10 @@ const milkForm = reactive({
   saving: false
 })
 
+// Corrección de registros: protegida con clave (ver MilkCorrectionForm)
 const editingMilkId = ref<string | null>(null)
-const milkEditForm = reactive({ recorded_date: '', liters: '' as string | number, notes: '', saving: false })
 
 const milkTotal = computed(() => milkRecords.value.reduce((s, r) => s + Number(r.liters), 0))
-
-function startEditMilk(r: MilkRecord) {
-  editingMilkId.value = r.id
-  milkEditForm.recorded_date = r.recorded_date
-  milkEditForm.liters = r.liters
-  milkEditForm.notes = r.notes ?? ''
-  milkEditForm.saving = false
-}
-
-function cancelEditMilk() { editingMilkId.value = null }
 
 async function submitMilk() {
   if (!animal.value || !milkForm.recorded_date || milkForm.liters === '') return
@@ -75,26 +67,19 @@ async function submitMilk() {
   finally { milkForm.saving = false }
 }
 
-async function saveMilkEdit() {
-  if (!editingMilkId.value || milkEditForm.liters === '') return
-  milkEditForm.saving = true
-  try {
-    const updated = await updateMilkRecord(editingMilkId.value, {
-      recorded_date: milkEditForm.recorded_date,
-      liters: Number(milkEditForm.liters),
-      notes: milkEditForm.notes || null
-    })
-    const idx = milkRecords.value.findIndex(r => r.id === editingMilkId.value)
-    if (idx !== -1) milkRecords.value[idx] = updated
-    editingMilkId.value = null
-  } catch (e) { alert('Error: ' + (e as Error).message) }
-  finally { milkEditForm.saving = false }
+function onMilkSaved(row: MilkRecord | MilkSession) {
+  const idx = milkRecords.value.findIndex(r => r.id === row.id)
+  if (idx !== -1) milkRecords.value[idx] = row as MilkRecord
+  editingMilkId.value = null
 }
 
-async function removeMilk(id: string) {
-  if (!confirm('¿Eliminar este registro?')) return
-  await deleteMilkRecord(id)
+function onMilkDeleted(id: string) {
   milkRecords.value = milkRecords.value.filter(r => r.id !== id)
+  editingMilkId.value = null
+}
+
+function formatShort(d: string) {
+  return new Date(`${d}T12:00:00`).toLocaleDateString('es', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
 // ─── Inseminación / Gestación ─────────────────────────────────────────────────
@@ -268,6 +253,11 @@ function genealogyLabel(a: { ear_tag: string | null; name: string | null }) {
   return a.ear_tag && a.name ? `${a.ear_tag} · ${a.name}` : (a.ear_tag ?? a.name ?? 'Sin arete')
 }
 
+function onParentsUpdated(updated: Animal) {
+  animal.value = updated
+  loadGenealogy()
+}
+
 async function loadGenealogy() {
   if (!animal.value) return
   const a = animal.value
@@ -398,26 +388,26 @@ const statusLabel: Record<string, string> = {
       </div>
     </div>
 
-    <div v-if="loading" class="card text-center py-12 text-gray-400">Cargando...</div>
+    <div v-if="loading" class="card-empty">Cargando...</div>
 
     <template v-else-if="animal">
       <!-- Info card -->
       <div class="card">
         <div class="grid grid-cols-2 sm:grid-cols-3 gap-4">
           <div>
-            <p class="text-xs text-gray-500 uppercase tracking-wide">Estado</p>
+            <p class="field-label">Estado</p>
             <BaseBadge :variant="statusVariant[animal.status]" class="mt-1">
               {{ statusLabel[animal.status] }}
             </BaseBadge>
           </div>
           <div>
-            <p class="text-xs text-gray-500 uppercase tracking-wide">Sexo</p>
+            <p class="field-label">Sexo</p>
             <BaseBadge :variant="animal.sex === 'female' ? 'pink' : 'blue'" class="mt-1">
               {{ animal.sex === 'female' ? 'Hembra' : 'Macho' }}
             </BaseBadge>
           </div>
           <div>
-            <p class="text-xs text-gray-500 uppercase tracking-wide">Preñez</p>
+            <p class="field-label">Preñez</p>
             <PregnancyBadge
               :is-pregnant="!!detail?.is_pregnant"
               :expected-date="detail?.expected_birth"
@@ -425,52 +415,38 @@ const statusLabel: Record<string, string> = {
             />
           </div>
           <div>
-            <p class="text-xs text-gray-500 uppercase tracking-wide">Nacimiento</p>
-            <p class="text-sm text-gray-800 font-medium mt-0.5">{{ formatDate(animal.birth_date) }}</p>
-          </div>
-          <div v-if="mother || animal.mother_name">
-            <p class="text-xs text-gray-500 uppercase tracking-wide">Madre</p>
-            <RouterLink v-if="mother" :to="`/cattle/${mother.id}`"
-              class="text-sm font-medium text-primary-600 hover:underline mt-0.5 inline-block">
-              {{ genealogyLabel(mother) }}
-            </RouterLink>
-            <p v-else class="text-sm text-gray-800 font-medium mt-0.5">{{ animal.mother_name }}</p>
-          </div>
-          <div v-if="father || animal.father_name">
-            <p class="text-xs text-gray-500 uppercase tracking-wide">Padre</p>
-            <RouterLink v-if="father" :to="`/cattle/${father.id}`"
-              class="text-sm font-medium text-primary-600 hover:underline mt-0.5 inline-block">
-              {{ genealogyLabel(father) }}
-            </RouterLink>
-            <p v-else class="text-sm text-gray-800 font-medium mt-0.5">{{ animal.father_name }}</p>
+            <p class="field-label">Nacimiento</p>
+            <p class="field-value">{{ formatDate(animal.birth_date) }}</p>
           </div>
           <div v-if="detail?.birth_count">
-            <p class="text-xs text-gray-500 uppercase tracking-wide">Partos</p>
-            <p class="text-sm text-gray-800 font-medium mt-0.5">{{ detail.birth_count }}</p>
+            <p class="field-label">Partos</p>
+            <p class="field-value">{{ detail.birth_count }}</p>
           </div>
           <div v-if="detail?.last_birth_date">
-            <p class="text-xs text-gray-500 uppercase tracking-wide">Último parto</p>
-            <p class="text-sm text-gray-800 font-medium mt-0.5">{{ formatDate(detail.last_birth_date) }}</p>
+            <p class="field-label">Último parto</p>
+            <p class="field-value">{{ formatDate(detail.last_birth_date) }}</p>
           </div>
           <div v-if="detail?.is_pregnant">
-            <p class="text-xs text-gray-500 uppercase tracking-wide">Inseminación</p>
-            <p class="text-sm text-gray-800 font-medium mt-0.5">{{ formatDate(detail.conception_date) }}</p>
+            <p class="field-label">Inseminación</p>
+            <p class="field-value">{{ formatDate(detail.conception_date) }}</p>
           </div>
           <div v-if="detail?.is_pregnant">
-            <p class="text-xs text-gray-500 uppercase tracking-wide">Parto esperado</p>
-            <p class="text-sm text-gray-800 font-medium mt-0.5">{{ formatDate(detail.expected_birth) }}</p>
+            <p class="field-label">Parto esperado</p>
+            <p class="field-value">{{ formatDate(detail.expected_birth) }}</p>
           </div>
         </div>
         <div v-if="animal.notes" class="mt-4 pt-4 border-t border-gray-100">
-          <p class="text-xs text-gray-500 uppercase tracking-wide mb-1">Notas</p>
+          <p class="field-label mb-1">Notas</p>
           <p class="text-sm text-gray-700">{{ animal.notes }}</p>
         </div>
       </div>
 
+      <ParentsEditor :animal="animal" :mother="mother" :father="father" @updated="onParentsUpdated" />
+
       <!-- Inseminación / Gestación (hembras) -->
       <div v-if="isFemale" class="card space-y-4">
         <div class="flex items-center justify-between">
-          <h3 class="text-sm font-semibold text-gray-700 flex items-center gap-2">
+          <h3 class="card-title">
             <Baby class="w-4 h-4 text-emerald-600" /> Gestación e Inseminaciones
           </h3>
           <BaseButton
@@ -483,7 +459,7 @@ const statusLabel: Record<string, string> = {
         </div>
 
         <!-- Preñada: mostrar info -->
-        <div v-if="detail?.is_pregnant" class="rounded-xl bg-emerald-50 border border-emerald-100 p-4 space-y-3">
+        <div v-if="detail?.is_pregnant" class="rounded-lg bg-emerald-50 p-4 space-y-3">
           <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
             <div>
               <p class="text-xs text-emerald-600 font-semibold uppercase tracking-wide">Inseminación</p>
@@ -563,7 +539,7 @@ const statusLabel: Record<string, string> = {
           <div
             v-for="r in inseminationHistory.filter(x => x.pregnancy_confirmed === null)"
             :key="'pending-' + r.id"
-            class="rounded-xl bg-amber-50 border border-amber-200 p-4 space-y-3"
+            class="rounded-lg bg-amber-50 ring-1 ring-amber-200 p-4 space-y-3"
           >
             <div class="flex items-center gap-2">
               <span class="text-base">⏳</span>
@@ -598,12 +574,12 @@ const statusLabel: Record<string, string> = {
         <!-- No preñada y sin pendientes -->
         <p v-if="!detail?.is_pregnant && !showInseminationForm && !inseminHistLoading
               && !inseminationHistory.filter(x => x.pregnancy_confirmed === null).length"
-          class="text-sm text-gray-400 text-center py-2">
+          class="text-sm text-gray-500 text-center py-2">
           Sin gestación activa.
         </p>
 
         <!-- Formulario inseminación -->
-        <div v-if="showInseminationForm" class="rounded-xl border border-emerald-100 bg-emerald-50 p-4 space-y-4">
+        <div v-if="showInseminationForm" class="inset space-y-4">
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <BaseInput
               v-model="inseminForm.conception_date"
@@ -649,9 +625,9 @@ const statusLabel: Record<string, string> = {
         </div>
 
         <!-- Historial de inseminaciones -->
-        <div v-if="inseminHistLoading" class="text-sm text-gray-400 text-center py-2">Cargando historial...</div>
+        <div v-if="inseminHistLoading" class="text-sm text-gray-500 text-center py-2">Cargando historial...</div>
         <div v-else-if="inseminationHistory.length > 0" class="pt-2 border-t border-gray-100 space-y-2">
-          <p class="text-xs font-semibold text-gray-400 uppercase tracking-wide">Historial de inseminaciones</p>
+          <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Historial de inseminaciones</p>
           <div class="space-y-2">
             <div
               v-for="r in inseminationHistory"
@@ -685,7 +661,7 @@ const statusLabel: Record<string, string> = {
                   <p v-if="r.semen_source" class="text-xs text-gray-500">
                     Semental: <span class="font-medium text-gray-700">{{ r.semen_source }}</span>
                   </p>
-                  <p v-if="r.expected_birth" class="text-xs text-gray-400">
+                  <p v-if="r.expected_birth" class="text-xs text-gray-500">
                     Parto estimado: {{ formatDate(r.expected_birth) }}
                   </p>
                   <p v-if="r.pregnancy_confirmed && r.pregnancy_confirmed_date" class="text-xs text-emerald-600">
@@ -721,7 +697,7 @@ const statusLabel: Record<string, string> = {
           </div>
         </div>
 
-        <div v-if="detail?.birth_count" class="text-xs text-gray-400 text-right">
+        <div v-if="detail?.birth_count" class="text-xs text-gray-500 text-right">
           Partos totales: <span class="font-semibold text-gray-600">{{ detail.birth_count }}</span>
         </div>
       </div>
@@ -730,7 +706,7 @@ const statusLabel: Record<string, string> = {
       <div v-if="isFemale" class="card space-y-4">
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-2">
-            <h3 class="text-sm font-semibold text-gray-700 flex items-center gap-2">
+            <h3 class="card-title">
               <Milk class="w-4 h-4 text-blue-400" /> Producción de leche
             </h3>
             <span v-if="milkTotal > 0" class="text-xs text-blue-600 bg-blue-50 border border-blue-100 rounded-full px-2 py-0.5 font-semibold">
@@ -742,7 +718,7 @@ const statusLabel: Record<string, string> = {
           </BaseButton>
         </div>
 
-        <div v-if="showMilkForm" class="rounded-xl border border-blue-100 bg-blue-50 p-4 space-y-3">
+        <div v-if="showMilkForm" class="inset space-y-3">
           <div class="grid grid-cols-2 gap-3">
             <BaseInput v-model="milkForm.recorded_date" label="Fecha" type="date" required />
             <BaseInput v-model="milkForm.liters" label="Litros" type="number" placeholder="0.0" required />
@@ -757,58 +733,40 @@ const statusLabel: Record<string, string> = {
           </div>
         </div>
 
-        <div v-if="milkLoading" class="text-center py-6 text-sm text-gray-400">Cargando...</div>
-        <p v-else-if="!milkRecords.length" class="text-center py-4 text-sm text-gray-400">Sin registros de leche.</p>
+        <div v-if="milkLoading" class="text-center py-6 text-sm text-gray-500">Cargando...</div>
+        <p v-else-if="!milkRecords.length" class="text-center py-4 text-sm text-gray-500">Sin registros de leche.</p>
 
-        <div v-else class="rounded-lg border border-gray-200 overflow-hidden">
-          <table class="w-full text-sm">
-            <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wide">
-              <tr>
-                <th class="px-3 py-2 text-left">Fecha</th>
-                <th class="px-3 py-2 text-right">Litros</th>
-                <th class="px-3 py-2 text-left">Notas</th>
-                <th class="px-3 py-2"></th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-gray-100 bg-white">
-              <tr v-for="r in milkRecords" :key="r.id">
-                <template v-if="editingMilkId === r.id">
-                  <td class="px-3 py-2">
-                    <input v-model="milkEditForm.recorded_date" type="date" class="form-input text-sm py-1" />
-                  </td>
-                  <td class="px-3 py-2">
-                    <input v-model="milkEditForm.liters" type="number" class="form-input text-sm py-1 w-24 text-right" step="0.1" />
-                  </td>
-                  <td class="px-3 py-2">
-                    <input v-model="milkEditForm.notes" type="text" class="form-input text-sm py-1" placeholder="Notas..." />
-                  </td>
-                  <td class="px-3 py-2">
-                    <div class="flex gap-1 justify-end">
-                      <button class="p-1 text-green-600 hover:bg-green-50 rounded" :disabled="milkEditForm.saving" @click="saveMilkEdit">✓</button>
-                      <button class="p-1 text-gray-400 hover:bg-gray-100 rounded" @click="cancelEditMilk">✕</button>
-                    </div>
-                  </td>
-                </template>
-                <template v-else>
-                  <td class="px-3 py-2 text-gray-700">{{ new Date(`${r.recorded_date}T12:00:00`).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' }) }}</td>
-                  <td class="px-3 py-2 text-right font-semibold text-blue-700">{{ Number(r.liters).toFixed(1) }} L</td>
-                  <td class="px-3 py-2 text-gray-400 text-xs">{{ r.notes ?? '—' }}</td>
-                  <td class="px-3 py-2">
-                    <div class="flex gap-1 justify-end">
-                      <button class="p-1 text-gray-300 hover:text-blue-500 rounded transition-colors" @click="startEditMilk(r)">✎</button>
-                      <button class="p-1 text-gray-300 hover:text-red-500 rounded transition-colors" @click="removeMilk(r.id)">✕</button>
-                    </div>
-                  </td>
-                </template>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+        <ul v-else class="-mx-2 divide-y divide-gray-100">
+          <li v-for="r in milkRecords" :key="r.id">
+            <button
+              v-if="editingMilkId !== r.id"
+              type="button"
+              class="group w-full flex items-center gap-3 px-2 py-2.5 rounded-lg text-left hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+              :aria-label="`Corregir registro del ${formatShort(r.recorded_date)}, ${Number(r.liters).toFixed(1)} litros`"
+              @click="editingMilkId = r.id"
+            >
+              <span class="text-sm text-gray-700 w-28 shrink-0">{{ formatShort(r.recorded_date) }}</span>
+              <span class="flex-1 min-w-0 text-sm text-gray-600 truncate">{{ r.notes ?? '' }}</span>
+              <span class="text-sm font-semibold text-gray-900 tabular-nums shrink-0">{{ Number(r.liters).toFixed(1) }} L</span>
+              <Pencil class="w-3.5 h-3.5 text-gray-400 group-hover:text-gray-700 shrink-0" aria-hidden="true" />
+            </button>
+            <div v-else class="py-2 px-2">
+              <MilkCorrectionForm
+                source="milk_records"
+                :entry="r"
+                :title="`${animal.ear_tag ?? animal.name ?? 'Vaca'}, ${formatShort(r.recorded_date)}`"
+                @saved="onMilkSaved"
+                @deleted="onMilkDeleted"
+                @cancel="editingMilkId = null"
+              />
+            </div>
+          </li>
+        </ul>
       </div>
 
       <!-- Crías -->
       <div v-if="offspring.length" class="card space-y-3">
-        <h3 class="text-sm font-semibold text-gray-700 flex items-center gap-2">
+        <h3 class="card-title">
           <Baby class="w-4 h-4 text-pink-500" /> Crías ({{ offspring.length }})
         </h3>
         <div class="divide-y divide-gray-100">
@@ -822,7 +780,7 @@ const statusLabel: Record<string, string> = {
               <p class="text-sm font-medium text-gray-800 group-hover:text-primary-600">
                 {{ genealogyLabel(o) }}
               </p>
-              <p class="text-xs text-gray-400">
+              <p class="text-xs text-gray-500">
                 {{ o.sex === 'female' ? 'Hembra' : 'Macho' }}
                 <template v-if="o.birth_date"> · nació el {{ formatDate(o.birth_date) }}</template>
               </p>
@@ -841,6 +799,6 @@ const statusLabel: Record<string, string> = {
       </div>
     </template>
 
-    <div v-else class="card text-center py-12 text-gray-400">Animal no encontrado.</div>
+    <div v-else class="card-empty">Animal no encontrado.</div>
   </div>
 </template>

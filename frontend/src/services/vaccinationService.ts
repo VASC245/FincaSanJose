@@ -89,7 +89,7 @@ export interface ActiveMilkWithdrawal {
 export async function fetchActiveMilkWithdrawals(): Promise<ActiveMilkWithdrawal[]> {
   const { data, error } = await supabase
     .from('vaccination_records')
-    .select('animal_id, milk_withdrawal_until, animal:animals(id, ear_tag, name), inventory_item:inventory_items(name)')
+    .select('animal_id, milk_withdrawal_until, animal:animals(id, ear_tag, name, status), inventory_item:inventory_items(name)')
     .gte('milk_withdrawal_until', localToday())
     .order('milk_withdrawal_until', { ascending: false })
 
@@ -99,15 +99,17 @@ export async function fetchActiveMilkWithdrawals(): Promise<ActiveMilkWithdrawal
   for (const r of (data ?? []) as unknown as {
     animal_id: string
     milk_withdrawal_until: string
-    animal: Pick<Animal, 'id' | 'ear_tag' | 'name'> | null
+    animal: Pick<Animal, 'id' | 'ear_tag' | 'name' | 'status'> | null
     inventory_item: { name: string } | null
   }[]) {
+    // Un animal vendido o muerto ya no da leche al tanque
+    if (r.animal && r.animal.status !== 'active') continue
     // ordenado descendente → el primero por animal es el retiro más largo
     if (!byAnimal.has(r.animal_id)) {
       byAnimal.set(r.animal_id, {
         animal_id: r.animal_id,
         until: r.milk_withdrawal_until,
-        animal: r.animal,
+        animal: r.animal ? { id: r.animal.id, ear_tag: r.animal.ear_tag, name: r.animal.name } : null,
         item_name: r.inventory_item?.name ?? null
       })
     }

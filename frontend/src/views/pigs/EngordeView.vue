@@ -134,8 +134,8 @@ function adgChip(adg: number) {
       </button>
     </div>
 
-    <div v-if="loading" class="text-center py-12 text-sm text-gray-400">Cargando...</div>
-    <div v-else-if="error" class="card text-center py-8 text-sm text-red-600">{{ error }}</div>
+    <div v-if="loading" class="text-center py-12 text-sm text-gray-500">Cargando...</div>
+    <div v-else-if="error" class="card-error">{{ error }}</div>
 
     <template v-else>
       <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -143,34 +143,30 @@ function adgChip(adg: number) {
           title="Cerdos en ceba"
           :value="rows.length"
           :icon="Scale"
-          color="orange"
         />
         <StatCard
           title="Kg ganados"
           :value="totalGain > 0 ? `+${totalGain}` : totalGain"
           :icon="TrendingUp"
-          color="green"
           subtitle="entre pesajes"
         />
         <StatCard
           title="Ganancia diaria prom."
           :value="avgAdg != null ? `${avgAdg} g` : '—'"
           :icon="TrendingUp"
-          color="blue"
           subtitle="meta: ≥ 600 g/día"
         />
         <StatCard
           title="Alimento por kg ganado"
           :value="costPerKg != null ? fmtCop(costPerKg) : '—'"
           :icon="Wheat"
-          color="yellow"
           :subtitle="feedPeriodStart ? `desde ${formatDate(feedPeriodStart)}` : 'sin datos'"
         />
       </div>
 
       <div class="card space-y-3">
-        <h2 class="text-sm font-semibold text-gray-700">Cerdos</h2>
-        <p v-if="!rows.length" class="text-sm text-gray-400 py-4 text-center">
+        <h2 class="card-title">Cerdos</h2>
+        <p v-if="!rows.length" class="text-sm text-gray-500 py-4 text-center">
           No hay cerdos en etapas de ceba ni pesajes registrados. Registra pesos desde la ficha de cada cerdo.
         </p>
         <div v-else class="overflow-x-auto">
@@ -199,7 +195,7 @@ function adgChip(adg: number) {
                 <td class="px-3 py-2 text-right text-gray-600">
                   <template v-if="r.summary">
                     {{ r.summary.totalGain >= 0 ? '+' : '' }}{{ r.summary.totalGain }} kg
-                    <span class="text-xs text-gray-400">/ {{ r.summary.days }} d</span>
+                    <span class="text-xs text-gray-500">/ {{ r.summary.days }} d</span>
                   </template>
                   <template v-else>—</template>
                 </td>
@@ -211,7 +207,7 @@ function adgChip(adg: number) {
                   >
                     {{ (r.summary.adg * 1000).toFixed(0) }} g/día
                   </span>
-                  <span v-else class="text-gray-400 text-xs">necesita 2+ pesajes</span>
+                  <span v-else class="text-gray-500 text-xs">necesita 2+ pesajes</span>
                 </td>
                 <td class="px-3 py-2 text-right text-gray-500">{{ r.records }}</td>
               </tr>
@@ -220,7 +216,7 @@ function adgChip(adg: number) {
         </div>
       </div>
 
-      <div class="rounded-xl border border-blue-100 bg-blue-50 p-4 space-y-2">
+      <div class="notice-info space-y-2">
         <div class="flex items-center gap-2">
           <Info class="w-4 h-4 text-blue-600 shrink-0" />
           <p class="text-sm font-semibold text-blue-800">Cómo leer estos números</p>

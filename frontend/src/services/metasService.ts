@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase'
-import { localToday } from '@/lib/dates'
+import { localToday, daysFromToday } from '@/lib/dates'
 import { fetchReproductionData, type IndicatorLevel } from '@/services/reproductionService'
 import { fetchAllWeightRecords, computeAdg } from '@/services/weightService'
 import type { WeightRecord } from '@/types'
@@ -69,9 +69,7 @@ export async function fetchMetas(): Promise<MetasData> {
       .lte('fecha', today),
     supabase
       .from('animals')
-      .select('id', { count: 'exact', head: false })
-      .eq('species', 'cattle')
-      .eq('sex', 'female')
+      .select('id, species, sex, stage, birth_date, cattle_detail:cattle_details(birth_count, is_pregnant, expected_birth)')
       .eq('status', 'active'),
     supabase
       .from('litters')
@@ -82,7 +80,27 @@ export async function fetchMetas(): Promise<MetasData> {
   // ── Leche del mes ──────────────────────────────────────────────────────────
   const litrosMes = (sessions ?? []).reduce((s, r) => s + Number(r.liters), 0)
   const diasConRegistro = new Set((sessions ?? []).map((r) => r.recorded_date)).size
-  const numVacas = (vacas ?? []).length
+  // Solo vacas en ordeño: adultas (ya parieron, o tienen 24+ meses si no hay partos
+  // registrados) y no secas (secado 60 días antes del parto). Las terneras y
+  // novillas no dan leche y bajaban el promedio.
+  type ActiveAnimal = {
+    id: string; species: string; sex: string; stage: string | null; birth_date: string | null
+    cattle_detail: { birth_count: number; is_pregnant: boolean; expected_birth: string | null } | { birth_count: number; is_pregnant: boolean; expected_birth: string | null }[] | null
+  }
+  const activos = (vacas ?? []) as unknown as ActiveAnimal[]
+  const detalle = (a: ActiveAnimal) => (Array.isArray(a.cattle_detail) ? a.cattle_detail[0] : a.cattle_detail) ?? null
+  const hembrasBovinas = activos.filter((a) => a.species === 'cattle' && a.sex === 'female')
+  const enOrdeno = hembrasBovinas.filter((a) => {
+    const d = detalle(a)
+    const adulta = (d?.birth_count ?? 0) > 0 ||
+      (!!a.birth_date && daysFromToday(a.birth_date) <= -730)
+    if (!adulta) return false
+    if (!d) return true
+    const seca = d.is_pregnant && !!d.expected_birth && daysFromToday(d.expected_birth) <= 60
+    return !seca
+  })
+  // Si no hay partos registrados, se usa el total de hembras (como antes)
+  const numVacas = enOrdeno.length || hembrasBovinas.length
   const litrosVacaDia = diasConRegistro > 0 && numVacas > 0
     ? Math.round((litrosMes / diasConRegistro / numVacas) * 10) / 10
     : null
@@ -94,8 +112,15 @@ export async function fetchMetas(): Promise<MetasData> {
     arr.push(w)
     byAnimal.set(w.animal_id, arr)
   }
+  // Solo cerdos activos de ceba: no cerdas reproductoras ni animales vendidos
+  const cerdosCeba = new Set(
+    activos
+      .filter((a) => a.species === 'pig' && a.stage !== 'reproduccion' && a.stage !== 'lactancia')
+      .map((a) => a.id)
+  )
   const adgs: number[] = []
-  for (const recs of byAnimal.values()) {
+  for (const [animalId, recs] of byAnimal.entries()) {
+    if (!cerdosCeba.has(animalId)) continue
     const s = computeAdg(recs)
     if (s?.adg != null) adgs.push(s.adg)
   }

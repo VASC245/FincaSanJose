@@ -1,10 +1,13 @@
 import { supabase } from '@/lib/supabase'
 import type { Task, TaskFormData } from '@/types'
 
+// Mismo select en todas partes para que la tarea conserve su chip de animal
+const TASK_SELECT = '*, animal:animals(id, ear_tag, name, species)'
+
 export async function fetchTasks(): Promise<Task[]> {
   const { data, error } = await supabase
     .from('tasks')
-    .select('*, animal:animals(id, ear_tag, name, species)')
+    .select(TASK_SELECT)
     .order('due_date', { ascending: true, nullsFirst: false })
 
   if (error) throw error
@@ -14,7 +17,7 @@ export async function fetchTasks(): Promise<Task[]> {
 export async function fetchTaskById(id: string): Promise<Task> {
   const { data, error } = await supabase
     .from('tasks')
-    .select('*, animal:animals(id, ear_tag, name, species)')
+    .select(TASK_SELECT)
     .eq('id', id)
     .single()
 
@@ -26,7 +29,7 @@ export async function createTask(payload: TaskFormData): Promise<Task> {
   const { data, error } = await supabase
     .from('tasks')
     .insert(payload)
-    .select()
+    .select(TASK_SELECT)
     .single()
 
   if (error) throw error
@@ -38,7 +41,7 @@ export async function updateTask(id: string, payload: Partial<TaskFormData>): Pr
     .from('tasks')
     .update(payload)
     .eq('id', id)
-    .select()
+    .select(TASK_SELECT)
     .single()
 
   if (error) throw error

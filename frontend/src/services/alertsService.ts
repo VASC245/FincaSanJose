@@ -10,7 +10,7 @@ export interface FincaAlert {
   link?: string
 }
 
-import { localToday, localDateOffset, addDaysToDate } from '@/lib/dates'
+import { localToday, localDateOffset, addDaysToDate, daysFromToday } from '@/lib/dates'
 
 const today = localToday
 
@@ -65,11 +65,8 @@ export async function fetchAlerts(): Promise<FincaAlert[]> {
       .order('observed_date', { ascending: false }),
   ])
 
-  function daysDiff(dateStr: string): number {
-    const todayMidnight = new Date(); todayMidnight.setHours(0,0,0,0)
-    const target = new Date(`${dateStr}T12:00:00`)
-    return Math.round((target.getTime() - todayMidnight.getTime()) / 86_400_000)
-  }
+  // hoy = 0 (antes daba 1 por anclar la fecha a mediodía)
+  const daysDiff = daysFromToday
 
   // ── Partos vacas ────────────────────────────────────────────────────────────
   for (const r of cattlePartos ?? []) {
@@ -157,60 +154,34 @@ export async function fetchAlerts(): Promise<FincaAlert[]> {
   }
 
   // ── Revisión de retorno de celo post-inseminación (bovinos y porcinos) ──────
-  // Si a los 21 días post-inseminación regresa el celo → no quedó preñada
-  const [{ data: cattleInsem }, { data: pigInsem }] = await Promise.all([
-    supabase
-      .from('cattle_details')
-      .select('conception_date, animal:animals!cattle_details_animal_id_fkey(ear_tag, name)')
-      .eq('is_pregnant', true)
-      .not('conception_date', 'is', null)
-      .gte('conception_date', addDays(-30))
-      .lte('conception_date', addDays(-18)),
-    supabase
-      .from('pig_details')
-      .select('service_date, animal:animals!pig_details_animal_id_fkey(ear_tag, name)')
-      .eq('is_pregnant', true)
-      .not('service_date', 'is', null)
-      .gte('service_date', addDays(-30))
-      .lte('service_date', addDays(-18)),
-  ])
+  // Si a los 21 días regresa el celo → no quedó preñada. Sale de las
+  // inseminaciones pendientes de confirmar (no de cattle/pig_details, que solo
+  // cambian al confirmar la preñez).
+  const { data: pendientes } = await supabase
+    .from('insemination_records')
+    .select('insemination_date, heat_check_date, animal:animals(id, ear_tag, name, species, status)')
+    .is('pregnancy_confirmed', null)
+    .gte('insemination_date', addDays(-30))
+    .lte('insemination_date', addDays(-16))
 
-  for (const r of cattleInsem ?? []) {
-    const animal = (r.animal as any)
-    const name = animal?.ear_tag ?? animal?.name ?? 'Sin arete'
-    const checkDate = addDaysToDate(r.conception_date, 21)
+  for (const r of (pendientes ?? []) as any[]) {
+    const animal = r.animal
+    if (!animal || animal.status !== 'active') continue
+    const esVaca = animal.species === 'cattle'
+    const name = animal.ear_tag ?? animal.name ?? 'Sin arete'
+    const checkDate = r.heat_check_date ?? addDaysToDate(r.insemination_date, 21)
     const diasParaRevision = daysDiff(checkDate)
     if (diasParaRevision >= -2 && diasParaRevision <= 3) {
       alerts.push({
-        id: `revision-celo-vaca-${name}`,
+        id: `revision-celo-${animal.id}`,
         level: diasParaRevision <= 0 ? 'critical' : 'warning',
-        title: `Revisar preñez: vaca ${name}`,
+        title: `Revisar preñez: ${esVaca ? 'vaca' : 'cerda'} ${name}`,
         description: diasParaRevision < 0
-          ? `Verificar si regresó el celo (día ${Math.abs(diasParaRevision)} de revisión)`
+          ? `Verificar si regresó el celo (revisión atrasada ${Math.abs(diasParaRevision)} día${diasParaRevision === -1 ? '' : 's'})`
           : diasParaRevision === 0
-            ? 'Hoy — revisar si regresó el celo para confirmar preñez'
-            : `En ${diasParaRevision} días — revisión de retorno de celo`,
-        link: '/cattle'
-      })
-    }
-  }
-
-  for (const r of pigInsem ?? []) {
-    const animal = (r.animal as any)
-    const name = animal?.ear_tag ?? animal?.name ?? 'Sin arete'
-    const checkDate = addDaysToDate(r.service_date, 21)
-    const diasParaRevision = daysDiff(checkDate)
-    if (diasParaRevision >= -2 && diasParaRevision <= 3) {
-      alerts.push({
-        id: `revision-celo-cerda-${name}`,
-        level: diasParaRevision <= 0 ? 'critical' : 'warning',
-        title: `Revisar preñez: cerda ${name}`,
-        description: diasParaRevision < 0
-          ? `Verificar si regresó el celo (día ${Math.abs(diasParaRevision)} de revisión)`
-          : diasParaRevision === 0
-            ? 'Hoy — revisar si regresó el celo para confirmar preñez'
-            : `En ${diasParaRevision} días — revisión de retorno de celo`,
-        link: '/pigs'
+            ? 'Hoy: revisar si regresó el celo para confirmar preñez'
+            : `En ${diasParaRevision} días: revisión de retorno de celo`,
+        link: esVaca ? `/cattle/${animal.id}` : `/pigs/${animal.id}`
       })
     }
   }

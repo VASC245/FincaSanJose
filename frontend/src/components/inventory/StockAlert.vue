@@ -1,42 +1,40 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { AlertTriangle } from 'lucide-vue-next'
+import { PackageX, ChevronRight } from 'lucide-vue-next'
 import { useInventoryStore } from '@/stores/inventory'
-import { useRouter } from 'vue-router'
 
 const inventoryStore = useInventoryStore()
-const router = useRouter()
 
 const alerts = computed(() => inventoryStore.lowStockItems)
 </script>
 
 <template>
-  <div v-if="alerts.length" class="rounded-xl border border-yellow-200 bg-yellow-50 p-4 space-y-3">
+  <section v-if="alerts.length" class="notice-warning space-y-3" aria-live="polite">
     <div class="flex items-center gap-2">
-      <AlertTriangle class="w-5 h-5 text-yellow-600 shrink-0" />
-      <p class="text-sm font-semibold text-yellow-800">
-        {{ alerts.length }} item{{ alerts.length > 1 ? 's' : '' }} con stock bajo
-      </p>
+      <PackageX class="w-5 h-5 text-amber-700 shrink-0" aria-hidden="true" />
+      <h2 class="text-sm font-semibold">
+        {{ alerts.length }} {{ alerts.length > 1 ? 'productos' : 'producto' }} con stock bajo
+      </h2>
     </div>
 
-    <ul class="space-y-1">
+    <ul class="divide-y divide-amber-200/70">
       <li
         v-for="item in alerts"
         :key="item.id"
-        class="text-xs text-yellow-700 flex items-center justify-between"
+        class="text-sm flex items-center justify-between gap-3 py-1.5"
       >
-        <span>{{ item.name }}</span>
-        <span class="font-medium">
-          {{ item.quantity }} / {{ item.min_quantity }} {{ item.unit }}
+        <span class="truncate">{{ item.name }}</span>
+        <span class="font-semibold tabular-nums whitespace-nowrap">
+          {{ item.quantity }} de {{ item.min_quantity }} {{ item.unit }}
         </span>
       </li>
     </ul>
 
-    <button
-      class="text-xs text-yellow-700 underline hover:text-yellow-900"
-      @click="router.push('/inventory')"
+    <RouterLink
+      to="/inventory"
+      class="inline-flex items-center gap-1 text-sm font-semibold text-amber-900 hover:underline"
     >
-      Ver inventario completo
-    </button>
-  </div>
+      Ver inventario <ChevronRight class="w-4 h-4" aria-hidden="true" />
+    </RouterLink>
+  </section>
 </template>

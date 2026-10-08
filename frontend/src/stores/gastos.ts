@@ -45,7 +45,11 @@ export const useGastosStore = defineStore('gastos', () => {
     }
     const updated = await gastosService.updateGasto(id, { ...payload, foto_url })
     const idx = gastos.value.findIndex((g) => g.id === id)
-    if (idx !== -1) gastos.value[idx] = updated
+    if (idx !== -1) {
+      // Fusionar: la respuesta offline (sintética) solo trae los campos cambiados
+      gastos.value[idx] = { ...gastos.value[idx], ...updated }
+      return gastos.value[idx]
+    }
     return updated
   }
 

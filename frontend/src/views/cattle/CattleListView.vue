@@ -22,7 +22,7 @@ const filteredCattle = computed(() => {
   return animalsStore.cattle.filter((a) => {
     const matchSearch =
       !searchQuery.value ||
-      a.ear_tag.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
+      (a.ear_tag ?? '').toLowerCase().includes(searchQuery.value.toLowerCase()) ||
       (a.name ?? '').toLowerCase().includes(searchQuery.value.toLowerCase())
 
     const matchStatus = !filterStatus.value || a.status === filterStatus.value
@@ -84,7 +84,7 @@ function formatBreed(b: string | null | undefined) {
     <!-- Filters -->
     <div class="card flex flex-col sm:flex-row gap-3">
       <div class="relative flex-1">
-        <Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+        <Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
         <input
           v-model="searchQuery"
           type="text"

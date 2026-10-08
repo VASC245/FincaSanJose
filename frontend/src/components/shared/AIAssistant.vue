@@ -4,7 +4,7 @@ import {
   Mic, MicOff, Send, X, Bot, Loader2, Trash2, Volume2, VolumeX,
   Headphones, CheckCircle2, AlertCircle, Square
 } from 'lucide-vue-next'
-import { sendMessage, type ConversationMessage, type AssistantAction } from '@/services/aiService'
+import { sendMessage, PARTIAL_REPLY, type ConversationMessage, type AssistantAction } from '@/services/aiService'
 
 // ─── State ────────────────────────────────────────────────────────────────────
 
@@ -202,7 +202,13 @@ async function send(text?: string) {
     const reply = await sendMessage(history.value, (label) => { toolStatus.value = label })
     const content = reply.text || (reply.actions.length ? 'Listo.' : 'No tengo respuesta para eso.')
     messages.value.push({ id: msgId++, role: 'assistant', content, actions: reply.actions })
-    history.value.push({ role: 'assistant', content })
+    // Si la respuesta se cortó después de guardar, el historial lleva qué
+    // quedó guardado para que el modelo no lo vuelva a registrar
+    const saved = reply.actions.filter(a => a.ok).map(a => a.summary)
+    history.value.push({
+      role: 'assistant',
+      content: content === PARTIAL_REPLY && saved.length ? `${content} Quedó guardado: ${saved.join(' | ')}` : content
+    })
     isLoading.value = false
     speak(content)
   } catch (e) {
@@ -445,7 +451,7 @@ onUnmounted(() => { stopListening(); stopSpeaking() })
               <Bot class="w-7 h-7 text-emerald-600" />
             </div>
             <p class="font-semibold text-slate-700">¿En qué te puedo ayudar?</p>
-            <p class="text-xs text-slate-400 mt-1 max-w-xs">
+            <p class="text-xs text-slate-500 mt-1 max-w-xs">
               Toca el micrófono y dicta: leche, partos, vacunas, gastos, ventas… o pregunta cualquier dato de la finca.
             </p>
           </div>

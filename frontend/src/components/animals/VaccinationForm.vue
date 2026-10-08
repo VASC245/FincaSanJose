@@ -64,13 +64,19 @@ async function handleSubmit() {
       milk_withdrawal_days: form.milk_withdrawal_days > 0 ? form.milk_withdrawal_days : null,
       milk_withdrawal_until: withdrawalUntil.value
     })
-    await createMovement({
-      item_id: form.inventory_item_id,
-      type: 'out',
-      quantity: form.quantity_used,
-      date: form.applied_date,
-      notes: `Vacunación aplicada`
-    })
+    // La vacuna ya quedó guardada: si falla el descuento de inventario (ej. stock
+    // insuficiente) se avisa aparte, para que no se reintente y se duplique.
+    try {
+      await createMovement({
+        item_id: form.inventory_item_id,
+        type: 'out',
+        quantity: form.quantity_used,
+        date: form.applied_date,
+        notes: `Vacunación aplicada`
+      })
+    } catch (e) {
+      alert('La vacuna se guardó, pero no se descontó del inventario: ' + (e as Error).message)
+    }
     emit('added', record)
     // Reset
     form.inventory_item_id = ''
@@ -126,7 +132,7 @@ const selectedItem = computed(() =>
         <p
           v-if="selectedItem"
           class="mt-1 text-xs"
-          :class="selectedItem.quantity <= selectedItem.min_quantity ? 'text-red-500' : 'text-gray-400'"
+          :class="selectedItem.quantity <= selectedItem.min_quantity ? 'text-red-500' : 'text-gray-500'"
         >
           Stock actual: {{ selectedItem.quantity }} {{ selectedItem.unit }}
           <span v-if="selectedItem.quantity <= selectedItem.min_quantity"> — Stock bajo</span>
@@ -168,7 +174,7 @@ const selectedItem = computed(() =>
         <p v-if="withdrawalUntil" class="mt-1 text-xs text-red-600 font-medium">
           🚫🥛 No vender la leche de este animal hasta el {{ formatDate(withdrawalUntil) }}
         </p>
-        <p v-else class="mt-1 text-xs text-gray-400">
+        <p v-else class="mt-1 text-xs text-gray-500">
           Si el medicamento tiene retiro, la app te avisará hasta cuándo no vender la leche.
         </p>
       </div>

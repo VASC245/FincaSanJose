@@ -10,18 +10,24 @@ export const useAnimalsStore = defineStore('animals', () => {
 
   const cattle = computed(() => animals.value.filter((a) => a.species === 'cattle'))
   const pigs = computed(() => animals.value.filter((a) => a.species === 'pig'))
+  // Solo animales activos: una vaca vendida o muerta no cuenta como preñada del hato
   const pregnantCows = computed(
-    () => cattle.value.filter((a) => a.cattle_detail?.is_pregnant).length
+    () => cattle.value.filter((a) => a.status === 'active' && a.cattle_detail?.is_pregnant).length
   )
   const pregnantSows = computed(
-    () => pigs.value.filter((a) => a.pig_detail?.is_pregnant).length
+    () => pigs.value.filter((a) => a.status === 'active' && a.pig_detail?.is_pregnant).length
   )
 
   async function loadAnimals(species?: Species) {
     loading.value = true
     error.value = null
     try {
-      animals.value = await animalService.fetchAnimals(species)
+      const fetched = await animalService.fetchAnimals(species)
+      // Cargar una sola especie no debe borrar la otra de la lista compartida
+      // (si no, los selectores de ventas, tareas o padres se quedan sin cerdos).
+      animals.value = species
+        ? [...animals.value.filter((a) => a.species !== species), ...fetched]
+        : fetched
     } catch (e) {
       error.value = (e as Error).message
     } finally {
@@ -36,6 +42,18 @@ export const useAnimalsStore = defineStore('animals', () => {
       return await animalService.fetchAnimalById(id)
     } catch (e) {
       error.value = (e as Error).message
+      return undefined
+    }
+  }
+
+  // Vuelve a leer un animal del servidor (ej. después de que un trigger lo cambió)
+  async function refreshAnimal(id: string): Promise<Animal | undefined> {
+    try {
+      const fresh = await animalService.fetchAnimalById(id)
+      const idx = animals.value.findIndex((a) => a.id === id)
+      if (idx !== -1) animals.value[idx] = fresh
+      return fresh
+    } catch {
       return undefined
     }
   }
@@ -86,8 +104,13 @@ export const useAnimalsStore = defineStore('animals', () => {
       }
     }
 
+    // updateAnimal no trae los detalles: se conservan los que ya había
     const idx = animals.value.findIndex((a) => a.id === id)
-    if (idx !== -1) animals.value[idx] = animal
+    if (idx !== -1) {
+      const merged = { ...animals.value[idx], ...animal }
+      animals.value[idx] = merged
+      return merged
+    }
     return animal
   }
 
@@ -124,6 +147,7 @@ export const useAnimalsStore = defineStore('animals', () => {
     getAnimal,
     addAnimal,
     editAnimal,
+    refreshAnimal,
     removeAnimal,
     removePigletsByLitter,
     updatePigletsBirthDateLocal

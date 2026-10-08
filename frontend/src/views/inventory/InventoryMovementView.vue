@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { localToday } from '@/lib/dates'
 import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ArrowLeft, ArrowDown, ArrowUp } from 'lucide-vue-next'
@@ -19,7 +20,7 @@ const form = reactive({
   type: 'in' as MovementType,
   quantity: 0,
   notes: '',
-  date: new Date().toISOString().slice(0, 10)
+  date: localToday()
 })
 
 onMounted(async () => {
@@ -64,9 +65,10 @@ const typeConfig: Record<MovementType, { label: string; variant: 'green' | 'red'
   out: { label: 'Salida', variant: 'red', icon: ArrowUp }
 }
 
+// `date` es una columna DATE (sin hora): se muestra solo el día, en hora local
 function formatDateTime(d: string) {
-  return new Date(d).toLocaleString('es', {
-    day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit'
+  return new Date(`${d.slice(0, 10)}T12:00:00`).toLocaleDateString('es', {
+    day: '2-digit', month: 'short', year: 'numeric'
   })
 }
 </script>
@@ -140,7 +142,7 @@ function formatDateTime(d: string) {
 
       <!-- Recent movements -->
       <div class="lg:col-span-2 space-y-3">
-        <h2 class="text-sm font-semibold text-gray-700">Movimientos recientes</h2>
+        <h2 class="card-title">Movimientos recientes</h2>
         <BaseTable
           :columns="movementColumns"
           :rows="inventoryStore.movements"

@@ -114,14 +114,16 @@ Deno.serve(async (req: Request): Promise<Response> => {
     isMorning
       ? supabase
           .from("vaccination_records")
-          .select("milk_withdrawal_until, animal:animals(ear_tag, name, species)")
+          .select("milk_withdrawal_until, animal:animals!inner(ear_tag, name, species, status)")
           .gte("milk_withdrawal_until", today)
+          .eq("animal.status", "active") // vendidos o muertos no cuentan
       : Promise.resolve({ data: [] }),
     isMorning
       ? supabase
           .from("vaccination_records")
-          .select("milk_withdrawal_until, animal:animals(ear_tag, name, species)")
+          .select("milk_withdrawal_until, animal:animals!inner(ear_tag, name, species, status)")
           .eq("milk_withdrawal_until", yesterday)
+          .eq("animal.status", "active") // vendidos o muertos no cuentan
       : Promise.resolve({ data: [] }),
   ]);
 
@@ -142,7 +144,14 @@ Deno.serve(async (req: Request): Promise<Response> => {
     for (const b of births) {
       const who = b.ear_tag ?? b.animal_name ?? "animal";
       const animal = b.species === "pig" ? "🐷 Cerda" : "🐄 Vaca";
-      lines.push(b.days_remaining <= 0 ? `${animal} ${who}: ¡parto esperado HOY!` : `${animal} ${who}: parto en ${b.days_remaining} día(s)`);
+      // La función también devuelve partos ya vencidos (días negativos)
+      lines.push(
+        b.days_remaining < 0
+          ? `${animal} ${who}: parto atrasado ${-b.days_remaining} día(s) — ¿ya parió? Regístralo en la app`
+          : b.days_remaining === 0
+            ? `${animal} ${who}: ¡parto esperado HOY!`
+            : `${animal} ${who}: parto en ${b.days_remaining} día(s)`
+      );
     }
 
     // Retorno de celo: inseminadas cuya fecha de chequeo (día 21) ya llegó

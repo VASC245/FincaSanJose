@@ -47,8 +47,8 @@ function fmtCop(n: number) {
       </button>
     </div>
 
-    <div v-if="loading" class="text-center py-12 text-sm text-gray-400">Calculando metas...</div>
-    <div v-else-if="error" class="card text-center py-8 text-sm text-red-600">{{ error }}</div>
+    <div v-if="loading" class="text-center py-12 text-sm text-gray-500">Calculando metas...</div>
+    <div v-else-if="error" class="card-error">{{ error }}</div>
 
     <template v-else-if="data">
       <!-- Semáforo de metas -->
@@ -107,7 +107,7 @@ function fmtCop(n: number) {
               </p>
             </div>
           </div>
-          <p class="text-xs text-gray-400">
+          <p class="text-xs text-gray-500">
             {{ data.costos.litrosMes }} L producidos y {{ fmtCop(data.costos.gastosMes) }} en gastos este mes.
             El costo incluye TODOS los gastos de la finca — es un estimado global.
           </p>
@@ -134,13 +134,13 @@ function fmtCop(n: number) {
               <p class="text-base font-bold text-gray-900">{{ fmtCop(data.costos.gastosAno) }}</p>
             </div>
           </div>
-          <p class="text-xs text-gray-400">
+          <p class="text-xs text-gray-500">
             Gastos totales del año divididos entre los lechones destetados (o nacidos vivos si falta el dato de destete).
           </p>
         </div>
       </div>
 
-      <div class="rounded-xl border border-blue-100 bg-blue-50 p-4 space-y-2">
+      <div class="notice-info space-y-2">
         <div class="flex items-center gap-2">
           <Info class="w-4 h-4 text-blue-600 shrink-0" />
           <p class="text-sm font-semibold text-blue-800">Sobre estas metas</p>

@@ -22,32 +22,31 @@ function label(w: ActiveMilkWithdrawal) {
 
 function diasRestantes(until: string) {
   const d = daysFromToday(until)
-  return d <= 0 ? 'último día' : `${d + 1} día(s) más`
+  if (d <= 0) return 'hoy es el último día'
+  return d === 1 ? 'termina mañana' : `faltan ${d + 1} días`
 }
 </script>
 
 <template>
-  <div v-if="withdrawals.length" class="rounded-xl border border-red-200 bg-red-50 p-4 space-y-3">
+  <section v-if="withdrawals.length" class="notice-danger space-y-3" aria-live="polite">
     <div class="flex items-center gap-2">
-      <MilkOff class="w-5 h-5 text-red-600 shrink-0" />
-      <p class="text-sm font-semibold text-red-800">
-        Leche en retiro — NO vender
-      </p>
+      <MilkOff class="w-5 h-5 text-red-700 shrink-0" aria-hidden="true" />
+      <h2 class="text-sm font-semibold">Leche en retiro: no vender</h2>
     </div>
 
-    <ul class="space-y-1">
+    <ul class="divide-y divide-red-200/70">
       <li
         v-for="w in withdrawals"
         :key="w.animal_id"
-        class="text-xs text-red-700 flex items-center justify-between gap-2"
+        class="py-1.5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-x-3"
       >
-        <span class="truncate">
-          {{ label(w) }}<span v-if="w.item_name" class="text-red-400"> · {{ w.item_name }}</span>
-        </span>
-        <span class="font-medium whitespace-nowrap">
-          hasta el {{ formatDate(w.until) }} ({{ diasRestantes(w.until) }})
+        <RouterLink :to="`/cattle/${w.animal_id}`" class="text-sm font-semibold truncate hover:underline">
+          {{ label(w) }}<span v-if="w.item_name" class="font-normal text-red-800"> · {{ w.item_name }}</span>
+        </RouterLink>
+        <span class="text-sm text-red-800 whitespace-nowrap">
+          hasta el {{ formatDate(w.until) }}, {{ diasRestantes(w.until) }}
         </span>
       </li>
     </ul>
-  </div>
+  </section>
 </template>

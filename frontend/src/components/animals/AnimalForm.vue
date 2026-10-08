@@ -206,7 +206,7 @@ function handleSubmit() {
           />
         </div>
       </div>
-      <p v-if="species === 'cattle'" class="text-xs text-gray-400">
+      <p v-if="species === 'cattle'" class="text-xs text-gray-500">
         Si la cría nace de una inseminación registrada, la madre y el toro de la pajuela se asignan automáticamente al registrar el parto.
       </p>
     </fieldset>

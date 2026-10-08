@@ -78,7 +78,7 @@ function chip(score: number) {
   <div class="card space-y-4">
     <div class="flex items-center justify-between">
       <div class="flex items-center gap-2 flex-wrap">
-        <h3 class="text-sm font-semibold text-gray-700 flex items-center gap-2">
+        <h3 class="card-title">
           <Activity class="w-4 h-4 text-teal-500" /> Condición corporal (BCS)
         </h3>
         <span
@@ -94,7 +94,7 @@ function chip(score: number) {
       </BaseButton>
     </div>
 
-    <div v-if="showForm" class="rounded-xl border border-teal-100 bg-teal-50 p-4 space-y-3">
+    <div v-if="showForm" class="inset space-y-3">
       <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <BaseInput v-model="form.recorded_date" label="Fecha" type="date" required />
         <div>
@@ -120,8 +120,8 @@ function chip(score: number) {
       </div>
     </div>
 
-    <div v-if="loading" class="text-center py-3 text-sm text-gray-400">Cargando...</div>
-    <p v-else-if="!records.length" class="text-center py-2 text-sm text-gray-400">
+    <div v-if="loading" class="text-center py-3 text-sm text-gray-500">Cargando...</div>
+    <p v-else-if="!records.length" class="text-center py-2 text-sm text-gray-500">
       Sin calificaciones. Califica la condición corporal en secado, parto y destete.
     </p>
     <ul v-else class="divide-y divide-gray-100">
@@ -131,7 +131,7 @@ function chip(score: number) {
             <span class="font-semibold">{{ Number(r.score) }}</span>
             <span v-if="r.moment" class="text-gray-500"> · {{ BCS_MOMENT_LABELS[r.moment] }}</span>
           </p>
-          <p class="text-xs text-gray-400">
+          <p class="text-xs text-gray-500">
             {{ formatDate(r.recorded_date) }}<template v-if="r.notes"> · {{ r.notes }}</template>
           </p>
         </div>

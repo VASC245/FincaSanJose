@@ -121,7 +121,7 @@ async function handleDelete(id: string) {
     <!-- Low stock alert banner -->
     <div
       v-if="inventoryStore.lowStockItems.length"
-      class="flex items-center gap-3 bg-yellow-50 border border-yellow-200 rounded-xl px-4 py-3"
+      class="notice-warning flex items-center gap-3 py-3"
     >
       <AlertTriangle class="w-5 h-5 text-yellow-600 shrink-0" />
       <p class="text-sm text-yellow-800 font-medium">
@@ -138,7 +138,7 @@ async function handleDelete(id: string) {
     <!-- Filters -->
     <div class="card">
       <div class="relative">
-        <Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+        <Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
         <input
           v-model="searchQuery"
           type="text"
@@ -158,7 +158,7 @@ async function handleDelete(id: string) {
     >
       <template #name="{ row }">
         <div class="flex items-center gap-2">
-          <Package class="w-4 h-4 text-gray-400" />
+          <Package class="w-4 h-4 text-gray-500" />
           <span class="font-medium text-gray-800">{{ (row as InventoryItem).name }}</span>
         </div>
       </template>
@@ -193,13 +193,13 @@ async function handleDelete(id: string) {
       <template #actions="{ row }">
         <div class="flex gap-2 justify-end">
           <button
-            class="p-1 text-gray-400 hover:text-primary-600"
+            class="p-1 text-gray-500 hover:text-primary-600"
             @click.stop="openEdit(row as InventoryItem)"
           >
             <Pencil class="w-4 h-4" />
           </button>
           <button
-            class="p-1 text-gray-400 hover:text-red-500"
+            class="p-1 text-gray-500 hover:text-red-500"
             @click.stop="handleDelete((row as InventoryItem).id)"
           >
             <Trash2 class="w-4 h-4" />
